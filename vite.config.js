@@ -1,0 +1,21 @@
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  base: './',
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          phaser: ['phaser'],
+          xstate: ['xstate'],
+        },
+      },
+    },
+  },
+  server: {
+    host: true,
+    port: 8080,
+  },
+});

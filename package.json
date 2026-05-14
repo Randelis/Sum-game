@@ -1,0 +1,18 @@
+{
+  "name": "sum-game",
+  "version": "2.0.0",
+  "description": "Zombie Shooter – Phaser 3 + EasyStar + XState",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "easystarjs": "^0.4.4",
+    "phaser": "^3.87.0",
+    "xstate": "^5.18.2"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
