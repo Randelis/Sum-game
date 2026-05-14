@@ -2,237 +2,288 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0a">
 <title>Zombie Shooter</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; background: #0a0a0a; overflow: hidden; touch-action: none; font-family: 'Arial', sans-serif; }
-canvas { display: block; position: fixed; inset: 0; }
+*  { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; }
+html,body { width:100%; height:100%; background:#080810; overflow:hidden; touch-action:none; font-family:'Arial',sans-serif; color:#fff; }
+canvas { display:block; position:fixed; inset:0; }
 
-/* ── TOP HUD ── */
-#hud-top {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
-  padding: 8px 10px 0;
-  background: linear-gradient(180deg,rgba(0,0,0,.75) 0%,transparent 100%);
-  pointer-events: none;
-  display: flex; flex-direction: column; gap: 4px;
+/* ──────────── ROTATE PROMPT (portrait) ──────────── */
+#rotate {
+  position:fixed; inset:0; z-index:1000; background:#080810;
+  display:none; flex-direction:column; align-items:center; justify-content:center;
+  text-align:center; padding:20px; gap:14px;
 }
-#hp-row { display: flex; align-items: center; gap: 6px; }
-#hp-icon { font-size: 14px; }
-#hp-bar-wrap { flex: 1; height: 14px; background: #2a0000; border-radius: 7px; border: 1px solid #550000; overflow: hidden; }
-#hp-bar { height: 100%; background: linear-gradient(90deg,#cc0022,#ff4466); border-radius: 7px; transition: width .1s; }
-#hp-text { font-size: 11px; color: #ffaaaa; min-width: 55px; text-align: right; }
+#rotate .icon { font-size:64px; animation:rot 2s ease-in-out infinite; }
+#rotate h2 { font-size:18px; color:#ff4466; }
+#rotate p  { font-size:13px; color:#aaa; max-width:280px; }
+@keyframes rot { 0%,100% { transform:rotate(-15deg);} 50% { transform:rotate(75deg);} }
+@media (orientation:portrait) and (max-width:900px) {
+  #rotate { display:flex; }
+  #game-root { display:none; }
+}
 
-#weapon-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #aaddff; }
-#weapon-name { font-weight: bold; color: #ffffff; font-size: 13px; }
-#ammo-bar-wrap { flex:1; height:6px; background:#112; border-radius:3px; overflow:hidden; }
-#ammo-bar { height:100%; background:linear-gradient(90deg,#0088ff,#44ccff); border-radius:3px; transition:width .08s; }
-#reload-text { font-size:11px; color:#ffcc44; font-weight:bold; display:none; }
+/* ──────────── HUD CONTAINER ──────────── */
+#game-root { position:fixed; inset:0; }
 
-/* ── BOTTOM HUD ── */
-#xp-bar-wrap { position:fixed; bottom:0; left:0; right:0; height:6px; background:rgba(0,0,0,.4); z-index:10; pointer-events:none; }
-#xp-bar { height:100%; background:linear-gradient(90deg,#7f00ff,#e100ff); transition:width .15s; }
+/* ── TOP LEFT: HP ── */
+#hp-card {
+  position:fixed; top:8px; left:8px; z-index:10;
+  background:rgba(0,0,0,.55); border:1px solid rgba(255,68,102,.4);
+  border-radius:8px; padding:5px 8px; pointer-events:none;
+  display:flex; align-items:center; gap:6px; min-width:160px; max-width:32vw;
+}
+#hp-card .lab { font-size:11px; color:#ff8899; }
+#hp-bar-wrap { flex:1; height:11px; background:#2a0008; border-radius:6px; border:1px solid #550014; overflow:hidden; }
+#hp-bar { height:100%; background:linear-gradient(90deg,#cc0022,#ff4466); transition:width .12s; }
+#hp-text { font-size:10px; color:#fff; min-width:54px; text-align:right; font-weight:bold; }
 
+/* ── TOP RIGHT: badges stack ── */
 #badges {
-  position:fixed; top:8px; right:10px; z-index:11; pointer-events:none;
-  display:flex; flex-direction:column; align-items:flex-end; gap:3px;
+  position:fixed; top:8px; right:8px; z-index:11;
+  display:flex; flex-direction:column; align-items:flex-end; gap:3px; pointer-events:none;
 }
-#level-badge { background:rgba(127,0,255,.85); color:#fff; font-size:12px; font-weight:bold; padding:2px 8px; border-radius:10px; }
-#score-badge { color:#ffcc00; font-size:11px; font-weight:bold; }
-#wave-badge  { color:#aaffaa; font-size:11px; font-weight:bold; }
+.badge { background:rgba(0,0,0,.55); padding:3px 9px; border-radius:9px; font-size:11px; font-weight:bold; }
+.b-level { color:#fff; background:rgba(127,0,255,.75); }
+.b-wave  { color:#aaffaa; }
+.b-kills { color:#ffcc00; }
+.b-score { color:#88ccff; font-size:10px; }
 
-/* ── MINI MAP ── */
-#minimap {
-  position:fixed; bottom:18px; right:10px; z-index:11;
-  width:90px; height:90px;
-  border-radius:6px; border:1px solid rgba(255,255,255,.2);
-  background:rgba(0,0,0,.55); overflow:hidden;
-}
-#minimap canvas { position:absolute; inset:0; }
-
-/* ── BOSS BAR ── */
+/* ── TOP CENTER: BOSS BAR ── */
 #boss-bar-wrap {
-  position:fixed; top:60px; left:50%; transform:translateX(-50%);
-  width:min(340px,80vw); z-index:12; display:none; pointer-events:none;
+  position:fixed; top:6px; left:50%; transform:translateX(-50%);
+  width:min(440px,55vw); z-index:12; display:none; pointer-events:none;
 }
-#boss-bar-label { text-align:center; font-size:12px; color:#ff4400; font-weight:bold; margin-bottom:3px; text-shadow:0 0 8px #ff4400; }
-#boss-bar-outer { height:14px; background:#200; border:1px solid #660000; border-radius:7px; overflow:hidden; }
-#boss-bar { height:100%; background:linear-gradient(90deg,#880000,#ff2200); border-radius:7px; transition:width .1s; }
+#boss-bar-label { text-align:center; font-size:11px; color:#ff4400; font-weight:bold; margin-bottom:2px; text-shadow:0 0 6px #ff4400; }
+#boss-bar-outer { height:12px; background:#1a0000; border:1px solid #660000; border-radius:6px; overflow:hidden; }
+#boss-bar { height:100%; background:linear-gradient(90deg,#660000,#ff2200,#ffaa00); transition:width .12s; }
 
-/* ── OVERLAYS ── */
-#overlay {
-  position:fixed; inset:0; background:rgba(0,0,0,.9);
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
-  z-index:100; color:#fff; gap:12px; padding:20px;
+/* ── MINIMAP ── */
+#minimap {
+  position:fixed; top:62px; right:8px; z-index:11;
+  width:84px; height:84px; border-radius:6px;
+  border:1px solid rgba(255,255,255,.18); background:rgba(0,0,0,.55); overflow:hidden;
 }
-#overlay h1 { font-size:clamp(32px,9vw,62px); color:#ff2244; text-shadow:0 0 25px #ff2244,0 0 50px #ff2244; letter-spacing:2px; }
-#overlay .sub { font-size:13px; color:#888; text-align:center; max-width:320px; line-height:1.5; }
+#mmc { position:absolute; inset:0; }
+
+/* ── BOTTOM CENTER: WEAPON + AMMO ── */
+#weapon-card {
+  position:fixed; bottom:18px; left:50%; transform:translateX(-50%); z-index:10;
+  background:rgba(0,0,0,.6); border:1px solid rgba(0,170,255,.4);
+  border-radius:9px; padding:5px 10px; pointer-events:none;
+  display:flex; flex-direction:column; gap:3px; min-width:180px; max-width:260px;
+}
+.wpn-row { display:flex; align-items:center; gap:6px; }
+#weapon-icon { font-size:14px; }
+#weapon-name { font-size:12px; font-weight:bold; color:#fff; flex:1; }
+#ammo-text { font-size:10px; color:#aaccff; font-weight:bold; }
+#ammo-bar-wrap { height:5px; background:#001020; border-radius:3px; overflow:hidden; }
+#ammo-bar { height:100%; background:linear-gradient(90deg,#0088ff,#44ddff); transition:width .08s; }
+.reload-flash { animation:flash 0.6s infinite; }
+@keyframes flash { 50% { opacity:.4; } }
+
+/* ── XP BAR ── */
+#xp-bar-wrap { position:fixed; bottom:0; left:0; right:0; height:5px; background:rgba(0,0,0,.4); z-index:10; pointer-events:none; }
+#xp-bar { height:100%; background:linear-gradient(90deg,#7f00ff,#e100ff,#ff44aa); transition:width .15s; }
+
+/* ── JOYSTICK ── */
+#joystick-zone {
+  position:fixed; bottom:22px; left:18px; z-index:20;
+  width:108px; height:108px; border-radius:50%;
+  background:rgba(255,255,255,.06); border:2px solid rgba(255,255,255,.13);
+  touch-action:none;
+}
+#joystick-knob {
+  position:absolute; width:46px; height:46px; border-radius:50%;
+  top:50%; left:50%; transform:translate(-50%,-50%);
+  background:rgba(255,255,255,.22); border:2px solid rgba(255,255,255,.35);
+}
+
+/* ── ACTION BUTTONS (bottom right) ── */
+#action-btns {
+  position:fixed; bottom:22px; right:18px; z-index:20;
+  display:flex; align-items:center; gap:10px;
+}
+.act-btn {
+  border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:9px; font-weight:bold; color:#fff; text-align:center; line-height:1.1;
+  cursor:pointer; touch-action:manipulation; border:2px solid;
+}
+#weapon-btn {
+  width:52px; height:52px;
+  background:radial-gradient(circle,rgba(0,150,255,.4),rgba(0,40,100,.7));
+  border-color:rgba(0,150,255,.6);
+}
+#shoot-btn {
+  width:84px; height:84px;
+  background:radial-gradient(circle,rgba(255,40,80,.45),rgba(140,0,30,.75));
+  border-color:rgba(255,40,80,.7);
+  font-size:11px;
+}
+
+/* ──────────── OVERLAYS ──────────── */
+#overlay {
+  position:fixed; inset:0; z-index:100;
+  background:radial-gradient(circle at 50% 50%,#1a0011 0%,#000 90%);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:10px; padding:20px;
+}
+#overlay h1 {
+  font-size:clamp(28px,7vmin,52px); color:#ff2244; letter-spacing:3px;
+  text-shadow:0 0 22px #ff2244,0 0 50px #ff2244;
+}
+#overlay .sub { font-size:12px; color:#999; text-align:center; max-width:380px; line-height:1.5; }
 #overlay .stat-grid {
-  display:grid; grid-template-columns:1fr 1fr; gap:6px 18px;
-  font-size:12px; color:#aaa; max-width:280px; width:100%;
+  display:grid; grid-template-columns:auto auto; gap:5px 18px;
+  font-size:12px; color:#aaa;
 }
 #overlay .stat-grid span { color:#fff; font-weight:bold; }
 .big-btn {
   background:linear-gradient(135deg,#ff2244,#990022); color:#fff;
-  border:none; border-radius:14px; padding:14px 44px;
-  font-size:18px; font-weight:bold; cursor:pointer;
-  box-shadow:0 0 22px rgba(255,34,68,.5); touch-action:manipulation; margin-top:6px;
+  border:none; border-radius:13px; padding:13px 38px;
+  font-size:16px; font-weight:bold; cursor:pointer;
+  box-shadow:0 0 22px rgba(255,34,68,.5); touch-action:manipulation;
 }
 .big-btn.purple { background:linear-gradient(135deg,#7f00ff,#440088); box-shadow:0 0 22px rgba(127,0,255,.5); }
 .big-btn:active { transform:scale(.96); }
 
-/* ── UPGRADE PANEL ── */
+/* ──────────── UPGRADE PANEL ──────────── */
 #upgrade-panel {
-  position:fixed; inset:0; background:rgba(0,0,0,.93);
-  display:none; flex-direction:column; align-items:center; justify-content:center;
-  z-index:200; color:#fff; gap:14px; padding:20px;
+  position:fixed; inset:0; z-index:200; display:none;
+  background:rgba(0,0,0,.94);
+  flex-direction:column; align-items:center; justify-content:center;
+  gap:8px; padding:12px 20px;
 }
-#upgrade-panel h2 { font-size:22px; color:#e100ff; text-shadow:0 0 14px #e100ff; }
-#upgrade-panel .lvl-txt { font-size:13px; color:#aaa; }
-#upgrade-choices { display:flex; flex-direction:column; gap:11px; width:100%; max-width:370px; }
+#upgrade-panel h2 { font-size:18px; color:#e100ff; text-shadow:0 0 10px #e100ff; }
+#upgrade-panel .lvl-txt { font-size:11px; color:#aaa; }
+#upgrade-choices {
+  display:grid; grid-template-columns:repeat(3,1fr); gap:10px;
+  width:100%; max-width:680px;
+}
 .upgrade-card {
-  background:linear-gradient(135deg,rgba(100,0,200,.22),rgba(0,0,0,.55));
-  border:1.5px solid rgba(127,0,255,.55); border-radius:14px;
-  padding:13px 16px; cursor:pointer; transition:all .15s; touch-action:manipulation;
+  background:linear-gradient(135deg,rgba(100,0,200,.25),rgba(0,0,0,.6));
+  border:1.5px solid rgba(127,0,255,.55); border-radius:11px;
+  padding:9px 11px; cursor:pointer; transition:all .15s; touch-action:manipulation;
 }
-.upgrade-card:active { transform:scale(.97); background:rgba(127,0,255,.35); }
-.upgrade-card .u-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
-.upgrade-card .u-name { font-size:15px; font-weight:bold; }
-.upgrade-card .u-lvl  { font-size:11px; color:#e100ff; }
-.upgrade-card .u-desc { font-size:12px; color:#ccc; }
-.upgrade-card .u-stars { font-size:10px; color:#ffcc00; letter-spacing:1px; }
+.upgrade-card:active { transform:scale(.96); background:rgba(127,0,255,.35); }
+.upgrade-card .u-name { font-size:13px; font-weight:bold; }
+.upgrade-card .u-lvl  { font-size:10px; color:#e100ff; float:right; }
+.upgrade-card .u-desc { font-size:10.5px; color:#bbb; margin-top:2px; line-height:1.3; }
+.upgrade-card .u-stars { font-size:9px; color:#ffcc00; letter-spacing:1px; margin-top:3px; }
 
-/* ── WEAPON PICKER ── */
+/* ──────────── WEAPON PICKER ──────────── */
 #weapon-picker {
-  position:fixed; inset:0; background:rgba(0,0,0,.9);
-  display:none; flex-direction:column; align-items:center; justify-content:center;
-  z-index:300; color:#fff; gap:14px; padding:20px;
+  position:fixed; inset:0; z-index:300; display:none;
+  background:rgba(0,0,0,.92);
+  flex-direction:column; align-items:center; justify-content:center;
+  gap:10px; padding:14px 20px;
 }
-#weapon-picker h2 { font-size:20px; color:#44ccff; text-shadow:0 0 12px #44ccff; }
-#weapon-list { display:flex; flex-direction:column; gap:10px; width:100%; max-width:370px; }
+#weapon-picker h2 { font-size:18px; color:#44ccff; text-shadow:0 0 10px #44ccff; }
+#weapon-list {
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:8px; width:100%; max-width:720px;
+}
 .weapon-card {
-  background:linear-gradient(135deg,rgba(0,80,160,.25),rgba(0,0,0,.55));
-  border:1.5px solid rgba(0,136,255,.45); border-radius:13px;
-  padding:12px 15px; cursor:pointer; touch-action:manipulation;
+  background:linear-gradient(135deg,rgba(0,90,170,.22),rgba(0,0,0,.55));
+  border:1.5px solid rgba(0,150,255,.4); border-radius:11px;
+  padding:8px 11px; cursor:pointer; touch-action:manipulation;
 }
-.weapon-card:active { background:rgba(0,136,255,.3); transform:scale(.97); }
-.weapon-card .w-name { font-size:15px; font-weight:bold; color:#88ddff; }
-.weapon-card .w-stats { font-size:11px; color:#aaa; margin-top:3px; }
+.weapon-card.locked { opacity:.45; filter:grayscale(.7); }
+.weapon-card:active { background:rgba(0,150,255,.3); transform:scale(.97); }
+.weapon-card .w-name { font-size:13px; font-weight:bold; }
+.weapon-card .w-stats { font-size:10px; color:#aaa; margin-top:2px; line-height:1.3; }
 
-/* ── NOTIFICATIONS ── */
+/* ──────────── NOTIFICATIONS ──────────── */
 #notif {
-  position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
-  font-size:clamp(22px,6vw,44px); font-weight:bold;
-  text-shadow:0 0 30px currentColor; pointer-events:none;
+  position:fixed; top:38%; left:50%; transform:translate(-50%,-50%);
+  font-size:clamp(20px,5vmin,38px); font-weight:bold;
+  text-shadow:0 0 22px currentColor; pointer-events:none;
   z-index:50; display:none; text-align:center; line-height:1.3;
-}
-
-/* ── JOYSTICK ── */
-#joystick-zone {
-  position:fixed; bottom:28px; left:16px;
-  width:115px; height:115px; border-radius:50%;
-  background:rgba(255,255,255,.07); border:2px solid rgba(255,255,255,.13);
-  z-index:20; touch-action:none;
-}
-#joystick-knob {
-  position:absolute; width:48px; height:48px;
-  background:rgba(255,255,255,.22); border-radius:50%;
-  top:50%; left:50%; transform:translate(-50%,-50%);
-  border:2px solid rgba(255,255,255,.35);
-  transition:background .1s;
-}
-
-/* ── ACTION BUTTONS ── */
-#action-btns {
-  position:fixed; bottom:28px; right:12px;
-  display:flex; flex-direction:column; gap:10px; align-items:flex-end;
-  z-index:20;
-}
-.action-btn {
-  border-radius:50%; border:2px solid; display:flex;
-  align-items:center; justify-content:center;
-  font-size:10px; font-weight:bold; text-align:center;
-  color:#fff; cursor:pointer; touch-action:manipulation; line-height:1.2;
-}
-#shoot-btn {
-  width:86px; height:86px;
-  background:radial-gradient(circle,rgba(255,34,68,.45),rgba(153,0,34,.75));
-  border-color:rgba(255,34,68,.7);
-}
-#weapon-btn {
-  width:58px; height:58px;
-  background:radial-gradient(circle,rgba(0,136,255,.35),rgba(0,50,120,.65));
-  border-color:rgba(0,136,255,.6); font-size:9px;
 }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
 
-<!-- TOP HUD -->
-<div id="hud-top">
-  <div id="hp-row">
-    <span id="hp-icon">❤</span>
+<!-- Portrait prompt -->
+<div id="rotate">
+  <div class="icon">📱</div>
+  <h2>Поверни телефон</h2>
+  <p>Эта игра в горизонтальном (ландшафтном) режиме. Поверни устройство на бок, чтобы продолжить.</p>
+</div>
+
+<!-- GAME -->
+<div id="game-root">
+  <canvas id="c"></canvas>
+
+  <!-- HP -->
+  <div id="hp-card">
+    <span class="lab">❤</span>
     <div id="hp-bar-wrap"><div id="hp-bar"></div></div>
     <span id="hp-text">100/100</span>
   </div>
-  <div id="weapon-row">
-    <span id="weapon-name">Pistol</span>
-    <div id="ammo-bar-wrap"><div id="ammo-bar"></div></div>
-    <span id="reload-text">RELOAD…</span>
+
+  <!-- Badges -->
+  <div id="badges">
+    <div class="badge b-level" id="level-badge">Lv 1</div>
+    <div class="badge b-wave"  id="wave-badge">Wave 1</div>
+    <div class="badge b-kills" id="kills-badge">Kills 0</div>
+    <div class="badge b-score" id="score-badge">Score 0</div>
   </div>
-</div>
 
-<!-- BADGES -->
-<div id="badges">
-  <div id="level-badge">Lv 1</div>
-  <div id="score-badge">Kills: 0</div>
-  <div id="wave-badge">Wave 1</div>
-</div>
+  <!-- Boss bar -->
+  <div id="boss-bar-wrap">
+    <div id="boss-bar-label">BOSS</div>
+    <div id="boss-bar-outer"><div id="boss-bar"></div></div>
+  </div>
 
-<!-- BOSS BAR -->
-<div id="boss-bar-wrap">
-  <div id="boss-bar-label">BOSS</div>
-  <div id="boss-bar-outer"><div id="boss-bar"></div></div>
-</div>
+  <!-- Minimap -->
+  <div id="minimap"><canvas id="mmc"></canvas></div>
 
-<!-- XP BAR -->
-<div id="xp-bar-wrap"><div id="xp-bar" style="width:0%"></div></div>
+  <!-- Weapon card -->
+  <div id="weapon-card">
+    <div class="wpn-row">
+      <span id="weapon-icon">🔫</span>
+      <span id="weapon-name">Pistol</span>
+      <span id="ammo-text">12/12</span>
+    </div>
+    <div id="ammo-bar-wrap"><div id="ammo-bar" style="width:100%"></div></div>
+  </div>
 
-<!-- MINIMAP -->
-<div id="minimap"><canvas id="mmc"></canvas></div>
+  <!-- XP bar -->
+  <div id="xp-bar-wrap"><div id="xp-bar"></div></div>
 
-<!-- NOTIFICATION -->
-<div id="notif"></div>
+  <!-- Notification -->
+  <div id="notif"></div>
 
-<!-- JOYSTICK -->
-<div id="joystick-zone"><div id="joystick-knob"></div></div>
+  <!-- Controls -->
+  <div id="joystick-zone"><div id="joystick-knob"></div></div>
+  <div id="action-btns">
+    <div id="weapon-btn" class="act-btn">SWAP<br>GUN</div>
+    <div id="shoot-btn"  class="act-btn">FIRE</div>
+  </div>
 
-<!-- ACTION BUTTONS -->
-<div id="action-btns">
-  <div id="shoot-btn"  class="action-btn">FIRE</div>
-  <div id="weapon-btn" class="action-btn">SWITCH<br>GUN</div>
-</div>
+  <!-- Start overlay -->
+  <div id="overlay">
+    <h1>ZOMBIE SHOOTER</h1>
+    <div class="sub">Top-down arena. Auto-aim. Survive waves, level up, unlock weapons, kill bosses.</div>
+    <button class="big-btn" id="start-btn">START GAME</button>
+  </div>
 
-<!-- MAIN OVERLAY (start / game-over) -->
-<div id="overlay">
-  <h1>ZOMBIE<br>SHOOTER</h1>
-  <div class="sub">Убивай зомби · Собирай опыт · Прокачивай оружие · Побеждай боссов</div>
-  <button class="big-btn" id="start-btn">НАЧАТЬ ИГРУ</button>
-</div>
+  <!-- Upgrade panel -->
+  <div id="upgrade-panel">
+    <h2>⬆ LEVEL UP!</h2>
+    <div class="lvl-txt" id="upg-lvl-txt"></div>
+    <div id="upgrade-choices"></div>
+  </div>
 
-<!-- UPGRADE PANEL -->
-<div id="upgrade-panel">
-  <h2>⬆ LEVEL UP!</h2>
-  <div class="lvl-txt" id="upg-lvl-txt"></div>
-  <div id="upgrade-choices"></div>
-</div>
-
-<!-- WEAPON PICKER -->
-<div id="weapon-picker">
-  <h2>⚙ Выбери оружие</h2>
-  <div id="weapon-list"></div>
-  <button class="big-btn purple" id="wpn-close-btn" style="padding:10px 30px;font-size:14px;">Закрыть</button>
+  <!-- Weapon picker -->
+  <div id="weapon-picker">
+    <h2>⚙ Выбери оружие</h2>
+    <div id="weapon-list"></div>
+    <button class="big-btn purple" id="wpn-close-btn" style="padding:8px 26px;font-size:13px;">Закрыть</button>
+  </div>
 </div>
 
 <script src="game.js"></script>
