@@ -29,6 +29,11 @@
       position: absolute;
       inset: 0;
     }
+    /* Canvas must not steal clicks from DOM overlays.
+       All in-game input is keyboard + DOM buttons/joystick. */
+    #phaser-parent canvas {
+      pointer-events: none;
+    }
 
     /* ── UI Overlay ──────────────────────────────────────────────────── */
     #ui-overlay {

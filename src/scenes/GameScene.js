@@ -89,15 +89,13 @@ export default class GameScene extends Phaser.Scene {
     this.hud.updateXp(this.player);
     this.hud.updateWave(0);
 
-    // Show start screen
+    // Show start screen – _started flag keeps update() idle until play is clicked
     this.startScreen.show();
-    this.scene.pause();
   }
 
   _startGame() {
     this._started = true;
     this.audio.init();
-    this.scene.resume();
     this.wave.start();
     this.hud.updateScore(0);
   }
