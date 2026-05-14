@@ -135,6 +135,21 @@ const rand    = (a,b) => a + Math.random()*(b-a);
 const randInt = (a,b) => Math.floor(rand(a,b+1));
 const clamp   = (v,a,b) => v<a?a:(v>b?b:v);
 const dist    = (ax,ay,bx,by) => Math.hypot(ax-bx, ay-by);
+const distSq  = (ax,ay,bx,by) => { const dx=ax-bx, dy=ay-by; return dx*dx+dy*dy; };
+const within  = (ax,ay,bx,by,r) => distSq(ax,ay,bx,by) < r*r;
+const pickOne = arr => arr[(Math.random() * arr.length) | 0];
+
+// In-place compaction (no new array allocation per frame).
+function keep(arr) {
+  let w = 0;
+  for (let i = 0; i < arr.length; i++) if (arr[i].alive) arr[w++] = arr[i];
+  arr.length = w;
+}
+function keepAlive(arr) {
+  let w = 0;
+  for (let i = 0; i < arr.length; i++) if (arr[i].life > 0) arr[w++] = arr[i];
+  arr.length = w;
+}
 
 
 /* ════════════ 4) DATA ════════════ */
@@ -355,8 +370,8 @@ const player = {
   x:0, y:0, r:15,
   hp:100, maxHp:100,
   baseSpeed:175, angle:0,
-  moveX:0, moveY:0,        // last movement direction (for dash)
   invincible:0,
+  contactCd:0,  // cooldown for continuous melee contact damage
   kills:0, score:0,
   xp:0, xpNext:100, level:1,
   slow:0,       // slow effect timer (seconds)
@@ -368,13 +383,9 @@ const player = {
   upgrades:newUpgrades(),
 };
 function newUpgrades() {
-  return {
-    damage:0, fireRate:0, bulletCount:0, bulletSpeed:0,
-    pierce:0, range:0, aoe:0, regen:0, maxHp:0, speed:0,
-    magnet:0, multishot:0, critChance:0, critMult:0, shield:0,
-    vampirism:0, napalm:0, ammoMax:0, reloadSpd:0, deathTouch:0,
-    dashCd:0,
-  };
+  const u = {};
+  for (const upg of UPGRADES) u[upg.id] = 0;
+  return u;
 }
 
 const DASH_BASE_CD = 4.0;      // seconds
@@ -459,7 +470,7 @@ function makeEnemy(def, x, y, isBoss=false) {
     abilities: def.abilities || [],
     abilityTimer: rand(2,5),
     charging:false, chargeVx:0, chargeVy:0, chargeDur:0,
-    bounceT: Math.random()*TAU, bouncePh:0,
+    bounceT: Math.random()*TAU,
     flash:0, angle:0,
     raging:false,
     // soulslike boss phase fields (only used when isBoss===true)
@@ -619,21 +630,15 @@ function fireBullets(angle) {
 }
 
 function fireEnemyProjectile(e) {
-  const dx = player.x - e.x, dy = player.y - e.y;
-  const d = Math.hypot(dx, dy) || 1;
+  const base = Math.atan2(player.y - e.y, player.x - e.x);
   const count  = e.isBoss ? 3 : 1;
   const spread = e.isBoss ? 0.15 : 0;
   const speed  = e.isBoss ? 200 : 160;
-
+  const mult   = e.isBoss ? 0.7 : 0.55;
+  const color  = e.isBoss ? '#ff4400' : '#aaff00';
   for (let i = 0; i < count; i++) {
-    const a = Math.atan2(dy, dx) + (i - (count-1)/2) * spread;
-    enemyBullets.push({
-      x:e.x, y:e.y,
-      vx:Math.cos(a)*speed, vy:Math.sin(a)*speed,
-      dmg: e.damage * (e.isBoss ? (e.abilityDmgMult||1) * 0.7 : 0.55),
-      r:7, alive:true, life:3.5,
-      color: e.isBoss ? '#ff4400' : '#aaff00',
-    });
+    const a = base + (i - (count - 1) / 2) * spread;
+    pushEnemyBullet(e, a, speed, mult, 7, 3.5, color);
   }
 }
 
@@ -691,7 +696,7 @@ function bombExplode(b) {
   particles.push({ type:'ring', x:b.tx, y:b.ty, r:0, maxR:b.radius, life:0.4, maxLife:0.4, color:'#ff4400' });
   addShake(5);
   sfx.explode();
-  if (dist(player.x, player.y, b.tx, b.ty) < b.radius) damagePlayer(b.dmg);
+  if (within(player.x, player.y, b.tx, b.ty, b.radius)) damagePlayer(b.dmg);
 }
 
 function hitEnemy(e, dmg) {
@@ -764,7 +769,8 @@ function killEnemy(e) {
     finishWave();
   } else {
     if (!isBossWave() && wave.spawned >= wave.enemiesPerWave) {
-      const alive = enemies.filter(x => x.alive).length;
+      let alive = 0;
+      for (const x of enemies) if (x.alive) alive++;
       if (alive === 0) finishWave();
     }
   }
@@ -794,13 +800,13 @@ function damagePlayer(dmg) {
   }
   player.hp -= dmg;
   player.invincible = 0.5;
-  if (killStreak >= 5) showNotif(`💔 СЕРИЯ ${killStreak} ПРЕРВАНА`, '#ff4444');
-  killStreak = 0; streakMult = 1;
   addShake(5);
   sfx.hurt();
   spawnParticles(player.x, player.y, '#ff2244', 8, 80, 0.3);
   vibrate([0, 25, 30, 25]);
-  if (player.hp <= 0) { player.hp = 0; gameOver(); }
+  if (player.hp <= 0) { player.hp = 0; killStreak = 0; streakMult = 1; gameOver(); return; }
+  if (killStreak >= 5) showNotif(`💔 СЕРИЯ ${killStreak} ПРЕРВАНА`, '#ff4444');
+  killStreak = 0; streakMult = 1;
 }
 
 
@@ -809,7 +815,7 @@ function damagePlayer(dmg) {
 function damagePlayerContact(dmg) {
   if (player.dashTime > 0) return;
   if (player.shieldCharges > 0) return; // shield blocks contact too
-  if ((player.contactCd || 0) > 0) return;
+  if (player.contactCd > 0) return;
   player.contactCd = 0.08;
   player.hp -= dmg;
   addShake(2);
@@ -826,6 +832,9 @@ function spawnParticles(x, y, color, count=8, spd=120, life=0.5) {
     const s = rand(spd*0.3, spd);
     particles.push({ type:'dot', x, y, vx:Math.cos(a)*s, vy:Math.sin(a)*s, life, maxLife:life, color, r:rand(2,5) });
   }
+}
+function spawnRing(x, y, maxR, life, color) {
+  particles.push({ type:'ring', x, y, r:0, maxR, life, maxLife:life, color });
 }
 function spawnDamageNum(x, y, val, crit) {
   damageNums.push({ x, y, vy:-55, val, life:0.9, maxLife:0.9, crit });
@@ -911,138 +920,114 @@ function triggerBossPhaseTransition(e, phaseIdx) {
   showNotif(ph.msg, ph.color);
   sfx.phaseTransition();
   spawnParticles(e.x, e.y, ph.color, 60, 300, 1.8);
-  particles.push({type:'ring', x:e.x, y:e.y, r:0, maxR:340, life:0.9, maxLife:0.9, color:ph.color});
-  particles.push({type:'ring', x:e.x, y:e.y, r:0, maxR:180, life:0.55, maxLife:0.55, color:'#ffffff'});
+  spawnRing(e.x, e.y, 340, 0.9,  ph.color);
+  spawnRing(e.x, e.y, 180, 0.55, '#ffffff');
 
   const barColors = [
     'linear-gradient(90deg,#884400,#ff8800,#ffcc00)',
     'linear-gradient(90deg,#550000,#ff0000,#ffff00)',
   ];
   ui.bossBar.style.background = barColors[phaseIdx];
-  ui.bossLabel.textContent = (currentBoss?.name || '') + ` [Phase ${e.phase}]`;
+  ui.bossLabel.textContent = e.name + ` [Phase ${e.phase}]`;
 }
 
-function doBossAbility(e, ability) {
-  const adm = e.abilityDmgMult || 1;
-  switch (ability) {
-    case 'slam': {
-      addShake(8);
-      spawnParticles(e.x, e.y, '#ff2244', 28, 280, 0.9);
-      if (dist(player.x, player.y, e.x, e.y) < 130) damagePlayer(e.damage * adm * 0.7);
-      break;
-    }
-    case 'summon': {
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * TAU;
-        spawnEnemyType('basic', e.x + Math.cos(a)*70, e.y + Math.sin(a)*70);
-      }
-      showNotif('👻 Summoning!', '#ff4444');
-      break;
-    }
-    case 'roar': {
-      addShake(10);
-      spawnParticles(e.x, e.y, '#ffcc00', 30, 200, 1.0);
-      const dx = player.x - e.x, dy = player.y - e.y;
-      const d = Math.hypot(dx, dy) || 1;
-      player.x += dx/d * 80;  player.y += dy/d * 80;
-      break;
-    }
-    case 'poisonCloud': {
-      spawnParticles(e.x, e.y, '#00ff44', 24, 130, 1.8);
-      if (dist(player.x, player.y, e.x, e.y) < 110) damagePlayer(e.damage * adm * 0.4);
-      break;
-    }
-    case 'spit': {
-      for (let i = 0; i < 6; i++) {
-        const a = Math.atan2(player.y-e.y, player.x-e.x) + rand(-0.5, 0.5);
-        enemyBullets.push({ x:e.x, y:e.y, vx:Math.cos(a)*210, vy:Math.sin(a)*210,
-          dmg:e.damage*adm*0.4, r:8, alive:true, life:2.8, color:'#00ff88' });
-      }
-      break;
-    }
-    case 'spawnFast': for (let i=0;i<3;i++) spawnEnemyType('fast', e.x+rand(-80,80), e.y+rand(-80,80)); break;
-    case 'charge': {
-      const dx = player.x - e.x, dy = player.y - e.y;
-      const d  = Math.hypot(dx, dy) || 1;
-      e.charging = true;
-      e.chargeVx = dx/d * e.speed;
-      e.chargeVy = dy/d * e.speed;
-      e.chargeDur = 0.9;
-      break;
-    }
-    case 'shockwave': {
-      addShake(12);
-      for (let i = 0; i < 16; i++) {
-        const a = (i / 16) * TAU;
-        enemyBullets.push({ x:e.x, y:e.y, vx:Math.cos(a)*200, vy:Math.sin(a)*200,
-          dmg:e.damage*adm*0.45, r:9, alive:true, life:2.2, color:'#aaaaff' });
-      }
-      break;
-    }
-    case 'stomp': {
-      addShake(15);
-      spawnParticles(e.x, e.y, '#555577', 35, 300, 1.0);
-      if (dist(player.x, player.y, e.x, e.y) < 150) damagePlayer(e.damage * adm * 0.9);
-      break;
-    }
-    case 'teleport': {
-      const pos = getSpawnPos();
-      spawnParticles(e.x, e.y, '#cc44ff', 18, 130, 0.6);
-      e.x = pos.x; e.y = pos.y;
-      spawnParticles(e.x, e.y, '#cc44ff', 18, 130, 0.6);
-      break;
-    }
-    case 'deathRay': {
-      for (let i = 0; i < 22; i++) {
-        const a = Math.atan2(player.y-e.y, player.x-e.x) + rand(-0.08, 0.08);
-        enemyBullets.push({ x:e.x, y:e.y, vx:Math.cos(a)*320, vy:Math.sin(a)*320,
-          dmg:e.damage*adm*0.35, r:6, alive:true, life:2.0, color:'#ff00ff' });
-      }
-      addShake(6);
-      break;
-    }
-    case 'fireRing': {
-      for (let i = 0; i < 24; i++) {
-        const a = (i / 24) * TAU;
-        enemyBullets.push({ x:e.x, y:e.y, vx:Math.cos(a)*150, vy:Math.sin(a)*150,
-          dmg:e.damage*adm*0.4, r:9, alive:true, life:3, color:'#ff4400' });
-      }
-      addShake(8);
-      break;
-    }
-    case 'firePillars': {
-      for (let i = 0; i < 6; i++) {
-        const px = player.x + rand(-200, 200);
-        const py = player.y + rand(-200, 200);
-        particles.push({ type:'ring', x:px, y:py, r:0, maxR:70, life:0.5, maxLife:0.5, color:'#ff4400' });
-        spawnParticles(px, py, '#ff8800', 14, 200, 0.6);
-        if (dist(player.x, player.y, px, py) < 80) damagePlayer(e.damage * adm * 0.5);
-      }
-      break;
-    }
-    case 'dash': {
-      const dx = player.x - e.x, dy = player.y - e.y, d = Math.hypot(dx,dy)||1;
-      e.charging = true; e.chargeVx = dx/d*e.speed*1.4; e.chargeVy = dy/d*e.speed*1.4; e.chargeDur = 0.7;
-      break;
-    }
-    case 'spawnSpiders': {
-      for (let i = 0; i < 5; i++) {
-        const a = Math.random()*TAU;
-        spawnEnemyType('crawler', e.x + Math.cos(a)*60, e.y + Math.sin(a)*60);
-      }
-      showNotif('🕷 Spider swarm!', '#ff44ff');
-      break;
-    }
-    case 'webBurst': {
-      // shoot 8 web projectiles that slow player
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * TAU;
-        enemyBullets.push({ x:e.x, y:e.y, vx:Math.cos(a)*180, vy:Math.sin(a)*180,
-          dmg:e.damage*adm*0.3, r:8, alive:true, life:2.5, color:'#ffffff', web:true });
-      }
-      break;
-    }
+function pushEnemyBullet(e, a, spd, mult, r, life, color, extra) {
+  const b = {
+    x: e.x, y: e.y,
+    vx: Math.cos(a) * spd, vy: Math.sin(a) * spd,
+    dmg: e.damage * (e.abilityDmgMult || 1) * mult,
+    r, alive: true, life, color,
+  };
+  if (extra) Object.assign(b, extra);
+  enemyBullets.push(b);
+}
+
+function spawnEnemiesInRing(type, cx, cy, count, radius) {
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * TAU;
+    spawnEnemyType(type, cx + Math.cos(a) * radius, cy + Math.sin(a) * radius);
   }
+}
+function spawnEnemiesScattered(type, cx, cy, count, spread) {
+  for (let i = 0; i < count; i++) {
+    spawnEnemyType(type, cx + rand(-spread, spread), cy + rand(-spread, spread));
+  }
+}
+
+// Boss ability building blocks
+function abilityPointDmg(e, radius, mult, shake, pColor, pCount, pSpd, pLife) {
+  if (shake)  addShake(shake);
+  if (pColor) spawnParticles(e.x, e.y, pColor, pCount, pSpd, pLife);
+  if (within(player.x, player.y, e.x, e.y, radius)) {
+    damagePlayer(e.damage * (e.abilityDmgMult || 1) * mult);
+  }
+}
+function abilityProjectiles(e, opts) {
+  if (opts.shake) addShake(opts.shake);
+  const aimP = opts.aim === 'player';
+  const base = aimP ? Math.atan2(player.y - e.y, player.x - e.x) : 0;
+  for (let i = 0; i < opts.count; i++) {
+    const a = aimP
+      ? base + rand(-opts.spread / 2, opts.spread / 2)
+      : base + (i / opts.count) * TAU;
+    pushEnemyBullet(e, a, opts.spd, opts.mult, opts.r, opts.life, opts.color, opts.extra);
+  }
+}
+function abilityCharge(e, dur, speedMult) {
+  const dx = player.x - e.x, dy = player.y - e.y;
+  const d  = Math.hypot(dx, dy) || 1;
+  e.charging  = true;
+  e.chargeVx  = dx / d * e.speed * speedMult;
+  e.chargeVy  = dy / d * e.speed * speedMult;
+  e.chargeDur = dur;
+}
+
+const BOSS_ABILITY_HANDLERS = {
+  slam:        e => abilityPointDmg(e, 130, 0.7, 8, '#ff2244', 28, 280, 0.9),
+  poisonCloud: e => abilityPointDmg(e, 110, 0.4, 0, '#00ff44', 24, 130, 1.8),
+  stomp:       e => abilityPointDmg(e, 150, 0.9, 15,'#555577', 35, 300, 1.0),
+
+  spit:      e => abilityProjectiles(e, {count:6,  spd:210, mult:0.4,  r:8, life:2.8, color:'#00ff88', aim:'player', spread:1.0}),
+  shockwave: e => abilityProjectiles(e, {count:16, spd:200, mult:0.45, r:9, life:2.2, color:'#aaaaff', aim:'circle', shake:12}),
+  deathRay:  e => { abilityProjectiles(e, {count:22, spd:320, mult:0.35, r:6, life:2.0, color:'#ff00ff', aim:'player', spread:0.16}); addShake(6); },
+  fireRing:  e => abilityProjectiles(e, {count:24, spd:150, mult:0.4,  r:9, life:3.0, color:'#ff4400', aim:'circle', shake:8}),
+  webBurst:  e => abilityProjectiles(e, {count:8,  spd:180, mult:0.3,  r:8, life:2.5, color:'#ffffff', aim:'circle', extra:{web:true}}),
+
+  charge: e => abilityCharge(e, 0.9, 1.0),
+  dash:   e => abilityCharge(e, 0.7, 1.4),
+
+  summon:       e => { spawnEnemiesInRing('basic',   e.x, e.y, 4, 70); showNotif('👻 Summoning!', '#ff4444'); },
+  spawnFast:    e => spawnEnemiesScattered('fast', e.x, e.y, 3, 80),
+  spawnSpiders: e => { spawnEnemiesInRing('crawler', e.x, e.y, 5, 60); showNotif('🕷 Spider swarm!', '#ff44ff'); },
+
+  roar: e => {
+    addShake(10);
+    spawnParticles(e.x, e.y, '#ffcc00', 30, 200, 1.0);
+    const dx = player.x - e.x, dy = player.y - e.y;
+    const d  = Math.hypot(dx, dy) || 1;
+    player.x += dx / d * 80; player.y += dy / d * 80;
+  },
+  teleport: e => {
+    const pos = getSpawnPos();
+    spawnParticles(e.x, e.y, '#cc44ff', 18, 130, 0.6);
+    e.x = pos.x; e.y = pos.y;
+    spawnParticles(e.x, e.y, '#cc44ff', 18, 130, 0.6);
+  },
+  firePillars: e => {
+    const adm = e.abilityDmgMult || 1;
+    for (let i = 0; i < 6; i++) {
+      const px = player.x + rand(-200, 200);
+      const py = player.y + rand(-200, 200);
+      spawnRing(px, py, 70, 0.5, '#ff4400');
+      spawnParticles(px, py, '#ff8800', 14, 200, 0.6);
+      if (within(player.x, player.y, px, py, 80)) damagePlayer(e.damage * adm * 0.5);
+    }
+  },
+};
+
+function doBossAbility(e, ability) {
+  const handler = BOSS_ABILITY_HANDLERS[ability];
+  if (handler) handler(e);
 }
 
 
@@ -1056,16 +1041,21 @@ document.addEventListener('keydown', e => {
   if (e.key === ' ' || e.key === 'Shift') { e.preventDefault(); tryDash(); }
 });
 
-function tryDash() {
-  if (!gameRunning || paused) return;
-  if (player.dashCd > 0 || player.dashTime > 0) return;
-  // direction from joystick/keys, fallback to facing angle
+function readInputDir() {
   let dx = 0, dy = 0;
   if (keys['ArrowLeft'] || keys['a'] || keys['A']) dx -= 1;
   if (keys['ArrowRight']|| keys['d'] || keys['D']) dx += 1;
   if (keys['ArrowUp']   || keys['w'] || keys['W']) dy -= 1;
   if (keys['ArrowDown'] || keys['s'] || keys['S']) dy += 1;
   dx += joy.vec.x; dy += joy.vec.y;
+  return { dx, dy };
+}
+
+function tryDash() {
+  if (!gameRunning || paused) return;
+  if (player.dashCd > 0 || player.dashTime > 0) return;
+  // direction from joystick/keys, fallback to facing angle
+  let { dx, dy } = readInputDir();
   const len = Math.hypot(dx, dy);
   if (len < 0.1) { dx = Math.cos(player.angle); dy = Math.sin(player.angle); }
   else { dx /= len; dy /= len; }
@@ -1540,7 +1530,7 @@ function update(dt) {
   if (!gameRunning || paused) return;
 
   // ── Contact damage cooldown ──
-  if ((player.contactCd || 0) > 0) player.contactCd -= dt;
+  if (player.contactCd > 0) player.contactCd -= dt;
 
   // ── Slow effect tick ──
   if (player.slow > 0) {
@@ -1562,14 +1552,9 @@ function update(dt) {
         color:'#44ddff', r:rand(3,5) });
     }
   } else {
-    let mx = 0, my = 0;
-    if (keys['ArrowLeft'] || keys['a'] || keys['A']) mx -= 1;
-    if (keys['ArrowRight']|| keys['d'] || keys['D']) mx += 1;
-    if (keys['ArrowUp']   || keys['w'] || keys['W']) my -= 1;
-    if (keys['ArrowDown'] || keys['s'] || keys['S']) my += 1;
-    mx += joy.vec.x; my += joy.vec.y;
+    let { dx: mx, dy: my } = readInputDir();
     const ml = Math.hypot(mx, my);
-    if (ml > 0) { mx /= ml; my /= ml; player.moveX = mx; player.moveY = my; }
+    if (ml > 0) { mx /= ml; my /= ml; }
     const evSpdMult = activeEvent?.spdMult || 1;
     player.x += mx * STATS.playerSpd() * evSpdMult * dt;
     player.y += my * STATS.playerSpd() * evSpdMult * dt;
@@ -1640,7 +1625,7 @@ function update(dt) {
       }
     }
   }
-  for (let i = bullets.length - 1; i >= 0; i--) if (!bullets[i].alive) bullets.splice(i, 1);
+  keep(bullets);
 
   // ── Enemy bullets ──
   for (const b of enemyBullets) {
@@ -1656,13 +1641,13 @@ function update(dt) {
     b.x += b.vx * dt; b.y += b.vy * dt;
     b.life -= dt;
     if (b.life <= 0) { b.alive = false; continue; }
-    if (dist(player.x, player.y, b.x, b.y) < player.r + b.r) {
+    if (within(player.x, player.y, b.x, b.y, player.r + b.r)) {
       if (b.web) { player.slow = 2; spawnParticles(player.x, player.y, '#ffffff', 8, 80, 0.4); }
       damagePlayer(b.dmg);
       b.alive = false;
     }
   }
-  enemyBullets = enemyBullets.filter(b => b.alive);
+  keep(enemyBullets);
 
   // ── Enemies ──
   for (const e of enemies) {
@@ -1703,7 +1688,7 @@ function update(dt) {
       if (e.healer) {
         for (const other of enemies) {
           if (other === e || !other.alive) continue;
-          if (dist(other.x, other.y, e.x, e.y) < 110) {
+          if (within(other.x, other.y, e.x, e.y, 110)) {
             other.hp = Math.min(other.maxHp, other.hp + 7 * dt);
           }
         }
@@ -1711,7 +1696,7 @@ function update(dt) {
 
       // Screamer aura → slow player
       if (e.screamer) {
-        if (dist(player.x, player.y, e.x, e.y) < 120) player.slow = 0.3;
+        if (within(player.x, player.y, e.x, e.y, 120)) player.slow = 0.3;
       }
     }
 
@@ -1733,8 +1718,7 @@ function update(dt) {
         if (e.windupTimer > 0) {
           e.windupTimer -= dt;
           if (Math.random() < 0.5)
-            particles.push({type:'ring', x:e.x, y:e.y, r:0, maxR:e.r*2.5,
-              life:0.22, maxLife:0.22, color:e.outline});
+            spawnRing(e.x, e.y, e.r * 2.5, 0.22, e.outline);
           if (e.windupTimer <= 0) {
             doBossAbility(e, e.windupAbility);
             e.windupAbility = null;
@@ -1747,7 +1731,7 @@ function update(dt) {
         } else {
           e.abilityTimer -= dt;
           if (e.abilityTimer <= 0) {
-            const ab = e.abilities[randInt(0, e.abilities.length - 1)];
+            const ab = pickOne(e.abilities);
             e.windupTimer   = 0.55;
             e.windupAbility = ab;
             spawnParticles(e.x, e.y, e.outline, 10, 160, 0.5);
@@ -1765,7 +1749,7 @@ function update(dt) {
       else          damagePlayerContact(contactDmg); // zombie contact: continuous DPS
     }
   }
-  enemies = enemies.filter(e => e.alive);
+  keep(enemies);
 
   // ── XP orb pickup ──
   const magnet = STATS.magnetR();
@@ -1777,19 +1761,19 @@ function update(dt) {
       const dx = player.x - o.x, dy = player.y - o.y;
       const od = Math.hypot(dx, dy) || 1;
       o.x += dx/od * pull * dt; o.y += dy/od * pull * dt;
-      if (dist(player.x, player.y, o.x, o.y) < player.r + o.r) {
+      if (within(player.x, player.y, o.x, o.y, player.r + o.r)) {
         addXP(o.xp); o.alive = false;
       }
     }
   }
-  orbs = orbs.filter(o => o.alive);
+  keep(orbs);
 
   // ── Pickups ──
   for (const p of pickups) {
     if (!p.alive) continue;
     p.life -= dt;
     if (p.life <= 0) { p.alive = false; continue; }
-    if (dist(player.x, player.y, p.x, p.y) < player.r + p.r + 4) {
+    if (within(player.x, player.y, p.x, p.y, player.r + p.r + 4)) {
       if (p.type === 'hp') {
         player.hp = Math.min(player.maxHp, player.hp + 25);
         spawnParticles(player.x, player.y, '#ff4466', 12, 100, 0.5);
@@ -1804,7 +1788,7 @@ function update(dt) {
       p.alive = false;
     }
   }
-  pickups = pickups.filter(p => p.alive);
+  keep(pickups);
 
   // ── Fire patches (napalm) ──
   for (const fp of firePatches) {
@@ -1827,7 +1811,7 @@ function update(dt) {
         life:0.5, maxLife:0.5, color: Math.random()<0.5?'#ff6622':'#ffcc00', r:rand(2,4) });
     }
   }
-  firePatches = firePatches.filter(fp => fp.alive);
+  keep(firePatches);
 
   // ── Particles ──
   for (const p of particles) {
@@ -1835,16 +1819,16 @@ function update(dt) {
     else if (p.type === 'ring') { p.r = p.maxR * (1 - p.life / p.maxLife); }
     p.life -= dt;
   }
-  particles = particles.filter(p => p.life > 0);
+  keepAlive(particles);
 
   for (const dn of damageNums) { dn.y += dn.vy * dt; dn.life -= dt; }
-  damageNums = damageNums.filter(dn => dn.life > 0);
+  keepAlive(damageNums);
 
   for (const d of bloodDecals) d.life -= dt * 0.3;
-  bloodDecals = bloodDecals.filter(d => d.life > 0);
+  keepAlive(bloodDecals);
 
   for (const L of lightnings) L.life -= dt;
-  lightnings = lightnings.filter(L => L.life > 0);
+  keepAlive(lightnings);
 
   // ── Active event countdown ──
   if (activeEvent && activeEvent.timer > 0) {
@@ -1867,17 +1851,20 @@ function update(dt) {
     return;
   }
 
+  // Don't tick spawn timer once the boss is alive on a boss wave.
+  if (isBossWave() && wave.bossSpawned) return;
+
   wave.spawnTimer -= dt;
   if (wave.spawnTimer <= 0) {
-    const alive = enemies.filter(e => e.alive).length;
+    let alive = 0;
+    for (const x of enemies) if (x.alive) alive++;
 
-    if (isBossWave() && !wave.bossSpawned) {
+    if (isBossWave()) {
       wave.bossSpawned = true;
       wave.spawned++;
       const bossIdx = Math.floor((wave.current - 5) / 5);
       spawnBoss(bossIdx);
-      wave.spawnTimer = 9999;
-    } else if (!isBossWave()) {
+    } else {
       if (wave.spawned < wave.enemiesPerWave && alive < 50) {
         wave.spawnTimer = wave.spawnInterval;
         wave.spawned++;
@@ -2103,7 +2090,7 @@ function startGame() {
 
   Object.assign(player, {
     x:0, y:0, r:15, hp:100, maxHp:100, baseSpeed:175,
-    angle:0, moveX:0, moveY:0, invincible:0,
+    angle:0, invincible:0, contactCd:0,
     kills:0, score:0, xp:0, xpNext:100, level:1,
     slow:0, slowFactor:1, shieldCharges:0,
     dashTime:0, dashCd:0, dashVx:0, dashVy:0,
@@ -2116,7 +2103,6 @@ function startGame() {
   killStreak = 0; streakMult = 1;
   activeEvent = null; eventCooldown = 0; eventBgTint = null;
   waveVariant = null;
-  player.contactCd = 0;
 
   Object.assign(wave, {
     current:1, spawnInterval:1.4, spawnTimer:0,
