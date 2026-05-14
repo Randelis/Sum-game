@@ -38,6 +38,7 @@ const ui = {
   killsBadge: $('kills-badge'),
   scoreBadge: $('score-badge'),
   bossBarWrap: $('boss-bar-wrap'), bossBar: $('boss-bar'), bossLabel: $('boss-bar-label'),
+  flaskBadge: $('flask-badge'),
   notif: $('notif'),
   overlay: $('overlay'),
   startBtn: $('start-btn'),
@@ -298,6 +299,90 @@ const BOSS_PHASES = [
     msg:'💀 ПОСЛЕДНЯЯ ФАЗА!', color:'#ff2244' },
 ];
 
+// Combo chains — bosses chain 2-3 abilities in sequence with a named telegraph.
+const BOSS_COMBOS = {
+  'ZOMBIE KING':    [{name:'👑 КОРОЛЕВСКАЯ ЯРОСТЬ', steps:['slam','slam','roar']},
+                     {name:'☠ ПРИЗЫВ МЁРТВЫХ',     steps:['summon','slam']}],
+  'TOXIC MUTANT':   [{name:'🦠 ВОЛНА ЧУМЫ',        steps:['poisonCloud','spit']},
+                     {name:'🧬 ТОКСИЧНАЯ ОХОТА',   steps:['spawnFast','spit','spit']}],
+  'IRON GOLEM':     [{name:'⛰ ДРОБЯЩИЙ НАТИСК',   steps:['charge','stomp']},
+                     {name:'🌍 ЗЕМЛЕТРЯСЕНИЕ',     steps:['stomp','shockwave']}],
+  'NECROMANCER':    [{name:'🌑 ТЁМНЫЙ РИТУАЛ',    steps:['summon','teleport','deathRay']},
+                     {name:'💀 УДАР ИЗ ПУСТОТЫ',   steps:['teleport','deathRay']}],
+  'HELLFIRE DEMON': [{name:'🔥 АДСКИЙ ТАНЕЦ',     steps:['dash','fireRing']},
+                     {name:'🌋 ГНЕВ ОГНЯ',         steps:['firePillars','fireRing']}],
+  'SPIDER QUEEN':   [{name:'🕷 ЯДОВИТЫЙ ВЫВОДОК', steps:['spawnSpiders','webBurst']},
+                     {name:'🕸 ЛОВУШКА',           steps:['webBurst','poisonCloud']}],
+};
+
+// Phase-3 ultimate — fires once when entering the final phase, after a 2s wind-up.
+const BOSS_ULTIMATES = {
+  'ZOMBIE KING':    { name:'🩸 КРОВАВАЯ ЖАТВА',     fn: e => {
+    addShake(28); spawnRing(e.x, e.y, 460, 1.0, '#ff0000');
+    spawnEnemiesInRing('basic', e.x, e.y, 12, 100);
+    BOSS_ABILITY_HANDLERS.roar(e);
+  }},
+  'TOXIC MUTANT':   { name:'☠ БИОЛОГИЧЕСКИЙ УЖАС', fn: e => {
+    addShake(20); spawnRing(e.x, e.y, 400, 1.0, '#00ff44');
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * TAU;
+      pushEnemyBullet(e, a, 240, 0.45, 9, 3.5, '#00ff88');
+    }
+    spawnEnemiesScattered('fast', e.x, e.y, 4, 100);
+  }},
+  'IRON GOLEM':     { name:'💥 РАСКОЛ ЗЕМЛИ',       fn: e => {
+    addShake(35); spawnRing(e.x, e.y, 500, 1.1, '#aabbdd');
+    for (let i = 0; i < 32; i++) {
+      const a = (i / 32) * TAU;
+      pushEnemyBullet(e, a, 240, 0.55, 11, 2.6, '#aaaaff');
+    }
+    if (within(player.x, player.y, e.x, e.y, 200)) damagePlayer(e.damage * (e.abilityDmgMult||1) * 1.2);
+  }},
+  'NECROMANCER':    { name:'⚰ РЕКВИЕМ',             fn: e => {
+    addShake(22); spawnRing(e.x, e.y, 420, 1.0, '#cc44ff');
+    spawnEnemiesInRing('basic', e.x, e.y, 8, 120);
+    const base = Math.atan2(player.y - e.y, player.x - e.x);
+    for (let i = 0; i < 36; i++) {
+      const a = base + rand(-0.4, 0.4);
+      pushEnemyBullet(e, a, 360, 0.4, 6, 2.2, '#ff00ff');
+    }
+  }},
+  'HELLFIRE DEMON': { name:'🌋 АРМАГЕДДОН',          fn: e => {
+    addShake(30); spawnRing(e.x, e.y, 480, 1.1, '#ff4400');
+    for (let i = 0; i < 10; i++) {
+      const px = player.x + rand(-280, 280), py = player.y + rand(-280, 280);
+      spawnRing(px, py, 80, 0.6, '#ff4400');
+      spawnParticles(px, py, '#ff8800', 16, 220, 0.7);
+      if (within(player.x, player.y, px, py, 90)) damagePlayer(e.damage * (e.abilityDmgMult||1) * 0.7);
+    }
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * TAU;
+      pushEnemyBullet(e, a, 180, 0.5, 9, 3.2, '#ff4400');
+    }
+  }},
+  'SPIDER QUEEN':   { name:'🕸 ГНЕВ КОРОЛЕВЫ',      fn: e => {
+    addShake(24); spawnRing(e.x, e.y, 440, 1.0, '#ff44ff');
+    spawnEnemiesInRing('crawler', e.x, e.y, 10, 100);
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * TAU;
+      pushEnemyBullet(e, a, 200, 0.4, 8, 2.8, '#ffffff', {web:true});
+    }
+  }},
+};
+
+// Abilities that leave the boss "exhausted" for a punish window after firing.
+const PUNISH_ABILITIES = new Set(['slam','stomp','charge','dash','firePillars','deathRay','ultimate']);
+
+// Boss epithets shown during the intro cinematic.
+const BOSS_SUBTITLES = {
+  'ZOMBIE KING':    'Король Безнадёжных',
+  'TOXIC MUTANT':   'Дитя Чумы',
+  'IRON GOLEM':     'Несокрушимый Страж',
+  'NECROMANCER':    'Повелитель Пустоты',
+  'HELLFIRE DEMON': 'Пламя Геенны',
+  'SPIDER QUEEN':   'Мать Тысячи Лап',
+};
+
 // ── UPGRADES ──
 const UPGRADES = [
   { id:'damage',      icon:'💥', name:'Power Shot',   desc:'+20% урон пуль',         max:10 },
@@ -354,6 +439,16 @@ let eventBgTint   = null;
 
 // ── Wave variant ──
 let waveVariant = null;    // null | 'speed' | 'swarm' | 'elite' | 'sniper'
+
+// ── Cinematic state ──
+let bossIntro = null;      // { name, subtitle, timer, maxTimer }
+let bossDeath = null;      // { name, timer, maxTimer }
+let timeScale = 1;         // global dt multiplier (for slow-mo)
+
+// ── Estus flask state ──
+const FLASK_MAX = 3;
+let flasks = FLASK_MAX;
+let healing = null;        // { timer, totalTime, rate }
 
 let shootTimer  = 0;
 let currentBoss = null;
@@ -477,6 +572,9 @@ function makeEnemy(def, x, y, isBoss=false) {
     phase: 1, phaseTransition: 0,
     windupTimer: 0, windupAbility: null,
     abilityDmgMult: 1,
+    comboQueue: [], comboName: null,    // chained ability sequence
+    ultimateUsed: false,                 // phase-3 ultimate fires once
+    exhausted: 0,                        // punish window timer
   };
   return e;
 }
@@ -500,6 +598,15 @@ function spawnBoss(bossIdx) {
   ui.bossBarWrap.style.display = 'block';
   updateBossBar(e);
   sfx.boss();
+
+  // Boss intro cinematic — freeze the world for 2.5s and reveal the name.
+  bossIntro = {
+    name:     def.name,
+    subtitle: BOSS_SUBTITLES[def.name] || '',
+    color:    def.outline || '#ff4400',
+    timer:    2.5,
+    maxTimer: 2.5,
+  };
 }
 
 function pickEnemyType() {
@@ -708,10 +815,12 @@ function hitEnemy(e, dmg) {
     spawnDamageNum(e.x, e.y - e.r - 4, '✦', false);
     return;
   }
-  const actual = dmg * (1 - e.armor);
+  // Punish window: boss takes 1.5× damage while exhausted.
+  const punish = e.isBoss && e.exhausted > 0;
+  const actual = dmg * (1 - e.armor) * (punish ? 1.5 : 1);
   e.hp -= actual;
   e.flash = 0.12;
-  spawnDamageNum(e.x, e.y - e.r - 4, Math.round(actual), false);
+  spawnDamageNum(e.x, e.y - e.r - 4, Math.round(actual), punish);
   sfx.hit();
 
   // berserker rage trigger
@@ -764,8 +873,20 @@ function killEnemy(e) {
   if (e.isBoss) {
     currentBoss = null;
     ui.bossBarWrap.style.display = 'none';
-    showNotif(`☠ ${e.name} DEFEATED!`, '#ffcc00');
-    addShake(12);
+    showNotif(`☠ ${e.name} ПОВЕРЖЕН!`, '#ffcc00');
+    addShake(18);
+
+    // Death cinematic: slow-mo + cascade of particles + ring shockwaves.
+    bossDeath = { name: e.name, timer: 1.6, maxTimer: 1.6 };
+    timeScale = 0.30;
+    spawnParticles(e.x, e.y, '#ffff00', 50, 320, 1.4);
+    spawnParticles(e.x, e.y, '#ffffff', 30, 220, 1.0);
+    spawnRing(e.x, e.y, 280, 0.7, '#ffffff');
+    spawnRing(e.x, e.y, 460, 1.0, '#ffaa00');
+    spawnRing(e.x, e.y, 640, 1.3, e.outline || '#ff4400');
+    flasks = FLASK_MAX;  // restore flasks for the next encounter
+    updateFlaskUI();
+
     finishWave();
   } else {
     if (!isBossWave() && wave.spawned >= wave.enemiesPerWave) {
@@ -915,6 +1036,9 @@ function triggerBossPhaseTransition(e, phaseIdx) {
   e.charging        = false;
   e.windupTimer     = 0;
   e.windupAbility   = null;
+  e.comboQueue      = [];
+  e.comboName       = null;
+  e.exhausted       = 0;
 
   addShake(20);
   showNotif(ph.msg, ph.color);
@@ -1030,6 +1154,66 @@ function doBossAbility(e, ability) {
   if (handler) handler(e);
 }
 
+function fireBossAbility(e, ability) {
+  if (ability === 'ultimate') {
+    const ult = BOSS_ULTIMATES[e.name];
+    if (ult) ult.fn(e);
+    e.exhausted = 1.4;  // long punish window after ultimate
+  } else {
+    doBossAbility(e, ability);
+    if (PUNISH_ABILITIES.has(ability)) e.exhausted = 0.8;
+  }
+}
+
+function scheduleNextBossAction(e) {
+  // If a combo has more steps, queue the next one with a short delay.
+  if (e.comboQueue && e.comboQueue.length > 0) {
+    e.abilityTimer = 0.4;  // brief breather between combo steps
+    return;
+  }
+  e.comboName = null;
+  const ph = e.phase;
+  const cdMin = ph >= 3 ? 0.8 : ph === 2 ? 1.6 : 2.5;
+  const cdMax = ph >= 3 ? 1.6 : ph === 2 ? 3.0 : 4.5;
+  e.abilityTimer = rand(cdMin, cdMax);
+}
+
+function startNextBossWindup(e) {
+  // Phase-3 ultimate: fires once on entering final phase.
+  if (e.phase >= 3 && !e.ultimateUsed && BOSS_ULTIMATES[e.name]) {
+    e.ultimateUsed   = true;
+    e.windupAbility  = 'ultimate';
+    e.windupTimer    = 2.0;   // long, deliberate wind-up
+    e.comboName      = null;
+    showNotif(`⚠ ${BOSS_ULTIMATES[e.name].name} ⚠`, '#ff0000');
+    addShake(10);
+    spawnParticles(e.x, e.y, '#ff0000', 30, 220, 1.0);
+    return;
+  }
+  // Continue current combo if one is in progress.
+  if (e.comboQueue && e.comboQueue.length > 0) {
+    e.windupAbility = e.comboQueue.shift();
+    e.windupTimer   = 0.45;
+    spawnParticles(e.x, e.y, e.outline, 8, 150, 0.4);
+    return;
+  }
+  // Otherwise pick a fresh combo (or fall back to a single ability).
+  const combos = BOSS_COMBOS[e.name];
+  if (combos && combos.length) {
+    const combo = pickOne(combos);
+    e.comboName     = combo.name;
+    e.comboQueue    = combo.steps.slice();
+    e.windupAbility = e.comboQueue.shift();
+    e.windupTimer   = 0.55;
+    showNotif(combo.name, e.outline || '#ffaa00');
+    spawnParticles(e.x, e.y, e.outline, 12, 170, 0.55);
+  } else {
+    e.windupAbility = pickOne(e.abilities);
+    e.windupTimer   = 0.55;
+    spawnParticles(e.x, e.y, e.outline, 10, 160, 0.5);
+  }
+}
+
 
 /* ════════════ 11) INPUT ════════════ */
 const keys = {};
@@ -1039,7 +1223,24 @@ document.addEventListener('keydown', e => {
   if (e.key === 'r' || e.key === 'R') startReload();
   if (e.key === 'q' || e.key === 'Q') cycleWeapon();
   if (e.key === ' ' || e.key === 'Shift') { e.preventDefault(); tryDash(); }
+  if (e.key === 'f' || e.key === 'F') useFlask();
 });
+
+function useFlask() {
+  if (!gameRunning || paused || bossIntro) return;
+  if (flasks <= 0 || healing) return;
+  if (player.hp >= player.maxHp) return;
+  flasks--;
+  healing = { timer: 0.8, totalTime: 0.8, rate: 50 / 0.8 };
+  spawnParticles(player.x, player.y, '#88ff88', 16, 100, 0.6);
+  sfx.pickup();
+  vibrate(20);
+  updateFlaskUI();
+}
+
+function updateFlaskUI() {
+  if (ui.flaskBadge) ui.flaskBadge.textContent = '🍶'.repeat(flasks) || '·';
+}
 
 function readInputDir() {
   let dx = 0, dy = 0;
@@ -1052,7 +1253,7 @@ function readInputDir() {
 }
 
 function tryDash() {
-  if (!gameRunning || paused) return;
+  if (!gameRunning || paused || bossIntro) return;
   if (player.dashCd > 0 || player.dashTime > 0) return;
   // direction from joystick/keys, fallback to facing angle
   let { dx, dy } = readInputDir();
@@ -1361,8 +1562,9 @@ function drawEnemies() {
     ctx.translate(e.x, e.y + (e.bouncer ? -Math.abs(Math.sin(e.bounceT))*12 : 0));
     ctx.rotate(e.angle);
 
-    if (e.flash > 0) { ctx.shadowBlur = 18; ctx.shadowColor = '#ffffff'; }
-    else { ctx.shadowBlur = e.isBoss ? 18 : 6; ctx.shadowColor = e.color; }
+    if (e.flash > 0)                { ctx.shadowBlur = 18; ctx.shadowColor = '#ffffff'; }
+    else if (e.isBoss && e.exhausted > 0) { ctx.shadowBlur = 26; ctx.shadowColor = '#ffdd00'; }
+    else                            { ctx.shadowBlur = e.isBoss ? 18 : 6; ctx.shadowColor = e.color; }
 
     if (e.isBoss) {
       ctx.fillStyle = e.flash > 0 ? '#ffffff' : e.color;
@@ -1528,6 +1730,16 @@ function findNearestEnemy() {
 
 function update(dt) {
   if (!gameRunning || paused) return;
+
+  // Boss intro cinematic freezes gameplay; gameLoop already ticked the timer.
+  if (bossIntro) return;
+
+  // ── Estus heal-over-time ──
+  if (healing) {
+    healing.timer -= dt;
+    player.hp = Math.min(player.maxHp, player.hp + healing.rate * dt);
+    if (healing.timer <= 0) healing = null;
+  }
 
   // ── Contact damage cooldown ──
   if (player.contactCd > 0) player.contactCd -= dt;
@@ -1702,6 +1914,7 @@ function update(dt) {
 
     // Boss abilities + phase system
     if (e.isBoss) {
+      if (e.exhausted > 0) e.exhausted -= dt;
       if (e.phaseTransition > 0) {
         e.phaseTransition -= dt;
         e.flash = 0.08;
@@ -1717,25 +1930,20 @@ function update(dt) {
         // Windup: telegraph + fire
         if (e.windupTimer > 0) {
           e.windupTimer -= dt;
-          if (Math.random() < 0.5)
-            spawnRing(e.x, e.y, e.r * 2.5, 0.22, e.outline);
+          const isUlt = e.windupAbility === 'ultimate';
+          const ringR = isUlt ? e.r * 4.5 : e.r * 2.5;
+          const ringC = isUlt ? '#ff0000' : e.outline;
+          if (Math.random() < (isUlt ? 0.9 : 0.5))
+            spawnRing(e.x, e.y, ringR, 0.22, ringC);
           if (e.windupTimer <= 0) {
-            doBossAbility(e, e.windupAbility);
+            fireBossAbility(e, e.windupAbility);
             e.windupAbility = null;
-            const ph = e.phase;
-            const cdMin = ph >= 3 ? 0.8 : ph === 2 ? 1.6 : 2.5;
-            const cdMax = ph >= 3 ? 1.6 : ph === 2 ? 3.0 : 4.5;
-            e.abilityTimer = rand(cdMin, cdMax);
+            scheduleNextBossAction(e);
             if (e.alive) updateBossBar(e);
           }
         } else {
           e.abilityTimer -= dt;
-          if (e.abilityTimer <= 0) {
-            const ab = pickOne(e.abilities);
-            e.windupTimer   = 0.55;
-            e.windupAbility = ab;
-            spawnParticles(e.x, e.y, e.outline, 10, 160, 0.5);
-          }
+          if (e.abilityTimer <= 0) startNextBossWindup(e);
         }
       }
     }
@@ -1910,16 +2118,91 @@ function render() {
   drawDamageNums();
 
   resetTransform();
+  drawArenaVignette();
   drawMinimap();
+  drawBossIntro();
+  drawBossDeath();
   updateDashBtn();
+}
+
+function drawArenaVignette() {
+  if (!currentBoss) return;
+  const w = canvas.width  / ctx._dpr;
+  const h = canvas.height / ctx._dpr;
+  const grad = ctx.createRadialGradient(w/2, h/2, Math.min(w,h)*0.30, w/2, h/2, Math.max(w,h)*0.65);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  const intensity = currentBoss.phase >= 3 ? 0.78 : currentBoss.phase >= 2 ? 0.60 : 0.42;
+  grad.addColorStop(1, `rgba(0,0,0,${intensity})`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+}
+
+function drawBossIntro() {
+  if (!bossIntro) return;
+  const w = canvas.width  / ctx._dpr;
+  const h = canvas.height / ctx._dpr;
+  const t = bossIntro.timer / bossIntro.maxTimer;          // 1 → 0
+  const reveal = 1 - t;                                    // 0 → 1
+  // Black bars top/bottom
+  const barH = h * 0.18 * Math.min(1, reveal * 3);
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
+  ctx.fillRect(0, 0, w, barH);
+  ctx.fillRect(0, h - barH, w, barH);
+  // Centered name
+  const fade = t < 0.2 ? t / 0.2 : reveal < 0.25 ? reveal / 0.25 : 1;
+  ctx.save();
+  ctx.globalAlpha = fade;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowBlur = 26; ctx.shadowColor = bossIntro.color;
+  ctx.fillStyle = bossIntro.color;
+  ctx.font = `bold ${Math.floor(h*0.10)}px serif`;
+  ctx.fillText(bossIntro.name, w/2, h/2 - h*0.04);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#dddddd';
+  ctx.font = `italic ${Math.floor(h*0.035)}px serif`;
+  ctx.fillText(bossIntro.subtitle, w/2, h/2 + h*0.05);
+  ctx.restore();
+}
+
+function drawBossDeath() {
+  if (!bossDeath) return;
+  const w = canvas.width  / ctx._dpr;
+  const h = canvas.height / ctx._dpr;
+  const t = bossDeath.timer / bossDeath.maxTimer;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, t * 1.5);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowBlur = 30; ctx.shadowColor = '#ffcc00';
+  ctx.fillStyle = '#ffcc00';
+  ctx.font = `bold ${Math.floor(h*0.12)}px serif`;
+  ctx.fillText('ПОБЕДА', w/2, h/2 - h*0.04);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `${Math.floor(h*0.035)}px serif`;
+  ctx.fillText(bossDeath.name + ' ПОВЕРЖЕН', w/2, h/2 + h*0.05);
+  ctx.restore();
 }
 
 
 /* ════════════ GAME LOOP ════════════ */
 function gameLoop(ts) {
-  const dt = Math.min((ts - lastTime) / 1000, 0.05);
+  const rawDt = Math.min((ts - lastTime) / 1000, 0.05);
   lastTime = ts;
-  update(dt);
+
+  // Cinematic timers run in real time (not affected by slow-mo).
+  if (gameRunning && !paused) {
+    if (bossIntro) {
+      bossIntro.timer -= rawDt;
+      if (bossIntro.timer <= 0) bossIntro = null;
+    }
+    if (bossDeath) {
+      bossDeath.timer -= rawDt;
+      if (bossDeath.timer <= 0) { bossDeath = null; timeScale = 1; }
+      else timeScale = 0.30 + 0.70 * (1 - bossDeath.timer / bossDeath.maxTimer);
+    }
+  }
+
+  update(rawDt * timeScale);
   render();
   requestAnimationFrame(gameLoop);
 }
@@ -2103,6 +2386,9 @@ function startGame() {
   killStreak = 0; streakMult = 1;
   activeEvent = null; eventCooldown = 0; eventBgTint = null;
   waveVariant = null;
+  bossIntro = null; bossDeath = null; timeScale = 1;
+  flasks = FLASK_MAX; healing = null;
+  updateFlaskUI();
 
   Object.assign(wave, {
     current:1, spawnInterval:1.4, spawnTimer:0,
