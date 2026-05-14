@@ -804,6 +804,21 @@ function damagePlayer(dmg) {
 }
 
 
+// Contact damage: bypasses invincibility so continuous overlap deals real DPS.
+// Uses a separate 0.08s cooldown to stay frame-rate independent.
+function damagePlayerContact(dmg) {
+  if (player.dashTime > 0) return;
+  if (player.shieldCharges > 0) return; // shield blocks contact too
+  if ((player.contactCd || 0) > 0) return;
+  player.contactCd = 0.08;
+  player.hp -= dmg;
+  addShake(2);
+  sfx.hurt();
+  spawnParticles(player.x, player.y, '#ff2244', 4, 60, 0.2);
+  vibrate(15);
+  if (player.hp <= 0) { player.hp = 0; gameOver(); }
+}
+
 /* ════════════ 9) FX ════════════ */
 function spawnParticles(x, y, color, count=8, spd=120, life=0.5) {
   for (let i=0; i<count; i++) {
@@ -884,7 +899,7 @@ function tryTriggerEvent() {
 /* ════════════ 10) BOSS ABILITIES ════════════ */
 function triggerBossPhaseTransition(e, phaseIdx) {
   const ph = BOSS_PHASES[phaseIdx];
-  e.phase           = phaseIdx + 1;  // 1-based
+  e.phase           = phaseIdx + 2;  // 1→2→3
   e.phaseTransition = 1.5;
   e.speed           = e.baseSpeed * ph.speedMult;
   e.abilityDmgMult  = ph.dmgMult;
@@ -904,7 +919,7 @@ function triggerBossPhaseTransition(e, phaseIdx) {
     'linear-gradient(90deg,#550000,#ff0000,#ffff00)',
   ];
   ui.bossBar.style.background = barColors[phaseIdx];
-  ui.bossLabel.textContent = (currentBoss?.name || '') + ` [Phase ${e.phase + 1}]`;
+  ui.bossLabel.textContent = (currentBoss?.name || '') + ` [Phase ${e.phase}]`;
 }
 
 function doBossAbility(e, ability) {
@@ -1524,6 +1539,9 @@ function findNearestEnemy() {
 function update(dt) {
   if (!gameRunning || paused) return;
 
+  // ── Contact damage cooldown ──
+  if ((player.contactCd || 0) > 0) player.contactCd -= dt;
+
   // ── Slow effect tick ──
   if (player.slow > 0) {
     player.slow -= dt;
@@ -1655,7 +1673,7 @@ function update(dt) {
     if (e.isBoss && e.phaseTransition > 0) {
       // frozen during phase transition — emit phase-colored sparks
       if (Math.random() < 0.55) {
-        const pc = e.phase >= 2 ? '#ff2244' : '#ff8800';
+        const pc = e.phase >= 3 ? '#ff2244' : '#ff8800';
         spawnParticles(e.x, e.y, pc, 2, 200, 0.35);
       }
     } else if (e.charging) {
@@ -1741,7 +1759,10 @@ function update(dt) {
     // Melee contact
     const d2 = dist(player.x, player.y, e.x, e.y);
     if (d2 < player.r + e.r) {
-      damagePlayer(e.damage * (e.isBoss ? (e.abilityDmgMult||1) : 1) * dt * (e.ranged && !e.isBoss ? 0.3 : 1));
+      const contactDmg = e.damage * (e.isBoss ? (e.abilityDmgMult||1) : 1)
+                       * dt * (e.ranged && !e.isBoss ? 0.3 : 1);
+      if (e.isBoss) damagePlayer(contactDmg);        // boss contact: respects iframes
+      else          damagePlayerContact(contactDmg); // zombie contact: continuous DPS
     }
   }
   enemies = enemies.filter(e => e.alive);
@@ -2095,6 +2116,7 @@ function startGame() {
   killStreak = 0; streakMult = 1;
   activeEvent = null; eventCooldown = 0; eventBgTint = null;
   waveVariant = null;
+  player.contactCd = 0;
 
   Object.assign(wave, {
     current:1, spawnInterval:1.4, spawnTimer:0,
