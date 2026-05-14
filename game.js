@@ -45,7 +45,14 @@ const ui = {
   wpnPicker: $('weapon-picker'), wpnList: $('weapon-list'), wpnCloseBtn: $('wpn-close-btn'),
   joyZone: $('joystick-zone'), joyKnob: $('joystick-knob'),
   shootBtn: $('shoot-btn'), weaponBtn: $('weapon-btn'),
+  hiBadge: $('hi-badge'), hiOverlay: $('hi-overlay'),
 };
+// initial hi-score display
+if ($('hi-badge')) $('hi-badge').textContent = `Best ${+(localStorage.getItem('zs_hi')||0)}`;
+if ($('hi-overlay')) {
+  const h = +(localStorage.getItem('zs_hi')||0);
+  $('hi-overlay').textContent = h > 0 ? `★ Best: ${h}` : '';
+}
 
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -64,7 +71,36 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
 /* ════════════ 2) AUDIO (Web Audio procedural) ════════════ */
 let audioCtx = null;
-function audio() { if (!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); return audioCtx; }
+function audio() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+  }
+  return audioCtx;
+}
+function resumeAudio() {
+  const ac = audio();
+  if (ac && ac.state === 'suspended') ac.resume().catch(()=>{});
+}
+
+/* ── Haptic feedback ── */
+function vibrate(ms) {
+  if (navigator.vibrate) { try { navigator.vibrate(ms); } catch(e) {} }
+}
+
+/* ── Wake lock (prevent screen dim on mobile) ── */
+let wakeLockSentinel = null;
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLockSentinel = await navigator.wakeLock.request('screen');
+    wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+  } catch(e) {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && gameRunning && !wakeLockSentinel) requestWakeLock();
+});
 function tone(freq, type, dur, gain=0.16, freqEnd=freq) {
   try {
     const ac=audio(), o=ac.createOscillator(), g=ac.createGain();
@@ -88,6 +124,7 @@ const sfx = {
   boss:     () => tone(55, 'sawtooth',1.2, 0.30,40),
   unlock:   () => tone(660,'triangle',0.30,0.14,1320),
   shieldHit:() => tone(800,'sine',    0.15,0.10,1600),
+  dash:     () => tone(520,'square',  0.18,0.08,1100),
 };
 
 
@@ -246,7 +283,7 @@ const UPGRADES = [
   { id:'bulletSpeed', icon:'💨', name:'Velocity',      desc:'+18% скорость пуль',     max:8  },
   { id:'pierce',      icon:'🎯', name:'Piercing',      desc:'Пробивает +1 врага',     max:5  },
   { id:'range',       icon:'📏', name:'Range',         desc:'+20% дальность',         max:8  },
-  { id:'aoe',         icon:'💣', name:'Explosive',     desc:'Пули взрываются',        max:5  },
+  { id:'aoe',         icon:'💣', name:'Explosive',     desc:'Пули взрываются (+радиус)', max:5 },
   { id:'regen',       icon:'💚', name:'Regen',         desc:'+0.5 HP/сек',            max:6  },
   { id:'maxHp',       icon:'❤', name:'Vitality',      desc:'+30 макс. HP',           max:8  },
   { id:'speed',       icon:'👟', name:'Agility',       desc:'+12% скорость бега',     max:8  },
@@ -256,10 +293,11 @@ const UPGRADES = [
   { id:'critMult',    icon:'🌟', name:'Crit Power',    desc:'+0.5x крит-множитель',   max:5  },
   { id:'shield',      icon:'🛡', name:'Energy Shield', desc:'+1 заряд щита',          max:3  },
   { id:'vampirism',   icon:'🩸', name:'Vampirism',     desc:'+1% вытягивание HP',     max:5  },
-  { id:'explosive',   icon:'🔥', name:'Napalm',        desc:'+1 ур. взрыва',          max:4  },
+  { id:'napalm',      icon:'🔥', name:'Napalm',        desc:'Поджигает землю в зоне взрыва', max:4 },
   { id:'ammoMax',     icon:'📦', name:'Big Mag',       desc:'+30% макс. патронов',    max:5  },
   { id:'reloadSpd',   icon:'🔄', name:'Fast Reload',   desc:'-15% время перезарядки', max:5  },
-  { id:'lifesteal',   icon:'💀', name:'Death Touch',   desc:'+5% шанс мгновенно убить','max':3 },
+  { id:'deathTouch',  icon:'💀', name:'Death Touch',   desc:'+5% шанс мгновенно убить', max:3 },
+  { id:'dashCd',      icon:'💨', name:'Quick Dash',    desc:'-25% откат рывка',       max:4  },
 ];
 
 
@@ -280,6 +318,7 @@ let particles    = [];
 let damageNums   = [];
 let bloodDecals  = [];
 let lightnings   = [];   // for lightning gun visuals
+let firePatches  = [];   // napalm ground fire
 
 let shootTimer  = 0;
 let currentBoss = null;
@@ -296,12 +335,16 @@ const player = {
   x:0, y:0, r:15,
   hp:100, maxHp:100,
   baseSpeed:175, angle:0,
+  moveX:0, moveY:0,        // last movement direction (for dash)
   invincible:0,
   kills:0, score:0,
   xp:0, xpNext:100, level:1,
   slow:0,       // slow effect timer (seconds)
   slowFactor:1, // current slow multiplier
   shieldCharges:0,
+  dashTime:0,   // dash active timer
+  dashCd:0,     // dash cooldown
+  dashVx:0, dashVy:0,
   upgrades:newUpgrades(),
 };
 function newUpgrades() {
@@ -309,9 +352,15 @@ function newUpgrades() {
     damage:0, fireRate:0, bulletCount:0, bulletSpeed:0,
     pierce:0, range:0, aoe:0, regen:0, maxHp:0, speed:0,
     magnet:0, multishot:0, critChance:0, critMult:0, shield:0,
-    vampirism:0, explosive:0, ammoMax:0, reloadSpd:0, lifesteal:0,
+    vampirism:0, napalm:0, ammoMax:0, reloadSpd:0, deathTouch:0,
+    dashCd:0,
   };
 }
+
+const DASH_BASE_CD = 4.0;      // seconds
+const DASH_DURATION = 0.22;    // seconds
+const DASH_SPEED_MULT = 4.5;   // x player speed during dash
+let hiScore = +(localStorage.getItem('zs_hi') || 0);
 
 const W = () => WEAPONS[currentWeapon];
 const STATS = {
@@ -325,11 +374,13 @@ const STATS = {
   critMult:    () => 2.0 + player.upgrades.critMult * 0.5,
   bulletCount: () => W().bulletCount + player.upgrades.bulletCount,
   pierce:      () => W().pierce      + player.upgrades.pierce - 1,
-  aoe:         () => W().aoe         + player.upgrades.aoe + player.upgrades.explosive,
+  aoe:         () => W().aoe         + player.upgrades.aoe,
   spread:      () => W().spread,
   maxAmmo:     () => Math.floor(W().maxAmmo * (1 + player.upgrades.ammoMax * 0.30)),
   reload:      () => W().reload * Math.pow(0.85, player.upgrades.reloadSpd),
-  lifestealCh: () => player.upgrades.lifesteal * 0.05,
+  deathTouchCh:() => player.upgrades.deathTouch * 0.05,
+  dashCd:      () => DASH_BASE_CD * Math.pow(0.75, player.upgrades.dashCd),
+  napalmLvl:   () => player.upgrades.napalm,
 };
 
 
@@ -478,6 +529,7 @@ function fireBullets(angle) {
   if (player.upgrades.multishot >= 2) { angles.push(angle + Math.PI*2/3); angles.push(angle - Math.PI*2/3); }
   if (player.upgrades.multishot >= 3) { angles.push(angle + Math.PI/2);   angles.push(angle - Math.PI/2); }
 
+  const napalm = STATS.napalmLvl();
   for (const baseA of angles) {
     for (let i=0; i<count; i++) {
       const off = count > 1 ? (i - (count-1)/2) * spread : 0;
@@ -489,10 +541,10 @@ function fireBullets(angle) {
         dmg: finalDmg, crit: isCrit,
         range, traveled: 0,
         pierce, pierced: 0,
-        aoe, chain,
+        aoe, napalm, chain,
         r: aoe > 0 ? 8 : 5,
         alive: true, color,
-        instaKillChance: STATS.lifestealCh(),
+        deathTouchCh: STATS.deathTouchCh(),
       });
     }
   }
@@ -536,19 +588,35 @@ function fireBomb(e) {
   });
 }
 
-function explode(x, y, aoeLevel, dmgMult=1) {
+function explode(x, y, aoeLevel, baseDmg, dmgMult=1, napalmLvl=0) {
   const radius = 40 + aoeLevel * 22;
-  const dmg    = STATS.damage() * (0.6 + aoeLevel * 0.18) * dmgMult;
+  const dmg    = baseDmg * (0.6 + aoeLevel * 0.18) * dmgMult;
   spawnParticles(x, y, '#ff8800', 18, 220, 0.7);
   spawnParticles(x, y, '#ffcc00', 10, 140, 0.4);
   particles.push({ type:'ring', x, y, r:0, maxR:radius, life:0.35, maxLife:0.35, color:'#ff8800' });
   addShake(aoeLevel * 2);
   sfx.explode();
+  vibrate(30);
   for (const e of enemies) {
     if (!e.alive) continue;
-    const d = dist(e.x, e.y, x, y);
-    if (d < radius + e.r) hitEnemy(e, dmg * (1 - d / (radius + e.r + 1)));
+    const dx = e.x - x, dy = e.y - y;
+    const d2 = dx*dx + dy*dy;
+    const total = radius + e.r;
+    if (d2 < total * total) {
+      const d = Math.sqrt(d2);
+      hitEnemy(e, dmg * (1 - d / (total + 1)));
+    }
   }
+  if (napalmLvl > 0) spawnFirePatch(x, y, radius * 0.95, napalmLvl, baseDmg);
+}
+
+function spawnFirePatch(x, y, radius, lvl, baseDmg) {
+  firePatches.push({
+    x, y, r: radius,
+    dps: baseDmg * (0.25 + lvl * 0.15),
+    life: 3 + lvl * 0.6, maxLife: 3 + lvl * 0.6,
+    alive: true,
+  });
 }
 
 function bombExplode(b) {
@@ -598,20 +666,21 @@ function chainLightning(srcEnemy, originBullet, dmg, hopsLeft) {
 function killEnemy(e) {
   e.alive = false;
   player.kills++;
-  player.score += e.isBoss ? 100 : (e.armor > 0 ? 5 : 2);
+  player.score += e.isBoss ? 500 : Math.max(5, Math.round(e.xp * 0.6));
   ui.killsBadge.textContent = `Kills ${player.kills}`;
   ui.scoreBadge.textContent = `Score ${player.score}`;
+  if (e.isBoss) vibrate([0, 80, 60, 80, 60, 120]);
 
   sfx.die();
   spawnParticles(e.x, e.y, e.color, e.isBoss ? 36 : 12, 160, e.isBoss ? 1.3 : 0.55);
   bloodDecals.push({ x:e.x, y:e.y, r:e.r*1.6 + rand(0,10), life:25 });
 
-  if (e.explodes) explode(e.x, e.y, 2);
+  if (e.explodes) explode(e.x, e.y, 2, e.damage * 1.2);
   dropOrbs(e);
 
   // rare health pickup drop
   if (!e.isBoss && Math.random() < 0.04) {
-    pickups.push({ type:'hp', x:e.x, y:e.y, r:8, alive:true, color:'#ff4466' });
+    pickups.push({ type:'hp', x:e.x, y:e.y, r:8, alive:true, color:'#ff4466', life:25 });
   }
 
   if (e.isBoss) {
@@ -641,12 +710,13 @@ function dropOrbs(e) {
 }
 
 function damagePlayer(dmg) {
-  if (player.invincible > 0) return;
+  if (player.invincible > 0 || player.dashTime > 0) return;
   if (player.shieldCharges > 0) {
     player.shieldCharges--;
     spawnParticles(player.x, player.y, '#44aaff', 14, 120, 0.4);
     player.invincible = 0.3;
     sfx.shieldHit();
+    vibrate(40);
     return;
   }
   player.hp -= dmg;
@@ -654,6 +724,7 @@ function damagePlayer(dmg) {
   addShake(5);
   sfx.hurt();
   spawnParticles(player.x, player.y, '#ff2244', 8, 80, 0.3);
+  vibrate([0, 25, 30, 25]);
   if (player.hp <= 0) { player.hp = 0; gameOver(); }
 }
 
@@ -810,7 +881,31 @@ document.addEventListener('keyup',   e => { keys[e.key] = false; });
 document.addEventListener('keydown', e => {
   if (e.key === 'r' || e.key === 'R') startReload();
   if (e.key === 'q' || e.key === 'Q') cycleWeapon();
+  if (e.key === ' ' || e.key === 'Shift') { e.preventDefault(); tryDash(); }
 });
+
+function tryDash() {
+  if (!gameRunning || paused) return;
+  if (player.dashCd > 0 || player.dashTime > 0) return;
+  // direction from joystick/keys, fallback to facing angle
+  let dx = 0, dy = 0;
+  if (keys['ArrowLeft'] || keys['a'] || keys['A']) dx -= 1;
+  if (keys['ArrowRight']|| keys['d'] || keys['D']) dx += 1;
+  if (keys['ArrowUp']   || keys['w'] || keys['W']) dy -= 1;
+  if (keys['ArrowDown'] || keys['s'] || keys['S']) dy += 1;
+  dx += joy.vec.x; dy += joy.vec.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 0.1) { dx = Math.cos(player.angle); dy = Math.sin(player.angle); }
+  else { dx /= len; dy /= len; }
+  const spd = STATS.playerSpd() * DASH_SPEED_MULT;
+  player.dashVx = dx * spd;
+  player.dashVy = dy * spd;
+  player.dashTime = DASH_DURATION;
+  player.dashCd   = STATS.dashCd();
+  player.invincible = Math.max(player.invincible, DASH_DURATION + 0.05);
+  sfx.dash();
+  vibrate(20);
+}
 
 // Joystick
 const joy = { center:{x:0,y:0}, vec:{x:0,y:0}, touchId:null };
@@ -852,12 +947,13 @@ function handleJoyMove(t) {
   ui.joyKnob.style.transform = 'translate(-50%,-50%)';
 }
 
-// Buttons
-ui.shootBtn.addEventListener('touchstart', e => { e.preventDefault(); if (gameRunning && !paused) shootTimer = 0; }, { passive:false });
-ui.weaponBtn.addEventListener('click',    openWeaponPicker);
-ui.weaponBtn.addEventListener('touchend', e => { e.preventDefault(); openWeaponPicker(); });
+// Buttons — FIRE is now a DASH button
+ui.shootBtn.addEventListener('touchstart', e => { e.preventDefault(); resumeAudio(); tryDash(); }, { passive:false });
+ui.shootBtn.addEventListener('mousedown',  e => { e.preventDefault(); resumeAudio(); tryDash(); });
+ui.weaponBtn.addEventListener('click',    e => { e.preventDefault(); openWeaponPicker(); });
+ui.weaponBtn.addEventListener('touchend', e => { e.preventDefault(); openWeaponPicker(); }, { passive:false });
 ui.wpnCloseBtn.addEventListener('click',    () => { ui.wpnPicker.style.display='none'; paused=false; });
-ui.wpnCloseBtn.addEventListener('touchend', e => { e.preventDefault(); ui.wpnPicker.style.display='none'; paused=false; });
+ui.wpnCloseBtn.addEventListener('touchend', e => { e.preventDefault(); ui.wpnPicker.style.display='none'; paused=false; }, { passive:false });
 
 
 /* ════════════ 12) HUD UPDATES ════════════ */
@@ -886,6 +982,19 @@ function updateAmmoBar() {
   ui.weaponIcon.textContent = W().icon;
 }
 function updateBossBar(e) { ui.bossBar.style.width = (e.hp / e.maxHp * 100) + '%'; }
+
+function updateDashBtn() {
+  const btn = ui.shootBtn;
+  if (player.dashCd > 0) {
+    const pct = 1 - player.dashCd / STATS.dashCd();
+    btn.style.background =
+      `conic-gradient(rgba(255,40,80,.45) ${pct*360}deg, rgba(60,60,60,.45) ${pct*360}deg)`;
+    btn.textContent = player.dashCd.toFixed(1) + 's';
+  } else {
+    btn.style.background = 'radial-gradient(circle,rgba(0,200,255,.5),rgba(0,80,140,.8))';
+    btn.textContent = 'DASH';
+  }
+}
 
 
 /* ════════════ 13) RENDERING ════════════ */
@@ -933,6 +1042,20 @@ function drawBloodDecals() {
     ctx.beginPath();
     ctx.ellipse(d.x, d.y, d.r, d.r * 0.65, d.life * 0.1, 0, TAU);
     ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawFirePatches() {
+  for (const fp of firePatches) {
+    if (!fp.alive) continue;
+    const a = fp.life / fp.maxLife;
+    ctx.globalAlpha = 0.35 * a;
+    ctx.fillStyle = '#ff5500';
+    ctx.beginPath(); ctx.arc(fp.x, fp.y, fp.r, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 0.55 * a;
+    ctx.fillStyle = '#ffaa00';
+    ctx.beginPath(); ctx.arc(fp.x, fp.y, fp.r * 0.55, 0, TAU); ctx.fill();
   }
   ctx.globalAlpha = 1;
 }
@@ -1160,37 +1283,37 @@ function drawDamageNums() {
 }
 
 function drawMinimap() {
-  const W = 84, H = 84, scale = 0.030;
-  mctx.clearRect(0, 0, W, H);
+  const MW = 84, MH = 84, scale = 0.030;
+  mctx.clearRect(0, 0, MW, MH);
   mctx.fillStyle = 'rgba(0,0,0,0.6)';
-  mctx.fillRect(0, 0, W, H);
+  mctx.fillRect(0, 0, MW, MH);
 
   for (const e of enemies) {
     if (!e.alive) continue;
-    const mx = W/2 + (e.x - player.x) * scale;
-    const my = H/2 + (e.y - player.y) * scale;
-    if (mx < 0 || mx > W || my < 0 || my > H) continue;
+    const mx = MW/2 + (e.x - player.x) * scale;
+    const my = MH/2 + (e.y - player.y) * scale;
+    if (mx < 0 || mx > MW || my < 0 || my > MH) continue;
     mctx.fillStyle = e.isBoss ? '#ff4400' : (e.berserker ? '#ff2244' : '#ff8888');
     mctx.beginPath(); mctx.arc(mx, my, e.isBoss ? 4 : 2, 0, TAU); mctx.fill();
   }
   for (const o of orbs) {
     if (!o.alive) continue;
-    const mx = W/2 + (o.x - player.x) * scale;
-    const my = H/2 + (o.y - player.y) * scale;
-    if (mx < 0 || mx > W || my < 0 || my > H) continue;
+    const mx = MW/2 + (o.x - player.x) * scale;
+    const my = MH/2 + (o.y - player.y) * scale;
+    if (mx < 0 || mx > MW || my < 0 || my > MH) continue;
     mctx.fillStyle = '#aa44ff';
     mctx.fillRect(mx-0.5, my-0.5, 1.5, 1.5);
   }
   for (const p of pickups) {
     if (!p.alive) continue;
-    const mx = W/2 + (p.x - player.x) * scale;
-    const my = H/2 + (p.y - player.y) * scale;
-    if (mx < 0 || mx > W || my < 0 || my > H) continue;
+    const mx = MW/2 + (p.x - player.x) * scale;
+    const my = MH/2 + (p.y - player.y) * scale;
+    if (mx < 0 || mx > MW || my < 0 || my > MH) continue;
     mctx.fillStyle = p.color;
     mctx.fillRect(mx-1, my-1, 3, 3);
   }
   mctx.fillStyle = '#4488ff';
-  mctx.beginPath(); mctx.arc(W/2, H/2, 3.5, 0, TAU); mctx.fill();
+  mctx.beginPath(); mctx.arc(MW/2, MH/2, 3.5, 0, TAU); mctx.fill();
 }
 
 
@@ -1218,16 +1341,28 @@ function update(dt) {
   }
 
   // ── Movement ──
-  let mx = 0, my = 0;
-  if (keys['ArrowLeft'] || keys['a'] || keys['A']) mx -= 1;
-  if (keys['ArrowRight']|| keys['d'] || keys['D']) mx += 1;
-  if (keys['ArrowUp']   || keys['w'] || keys['W']) my -= 1;
-  if (keys['ArrowDown'] || keys['s'] || keys['S']) my += 1;
-  mx += joy.vec.x; my += joy.vec.y;
-  const ml = Math.hypot(mx, my);
-  if (ml > 0) { mx /= ml; my /= ml; }
-  player.x += mx * STATS.playerSpd() * dt;
-  player.y += my * STATS.playerSpd() * dt;
+  if (player.dashCd > 0) player.dashCd = Math.max(0, player.dashCd - dt);
+  if (player.dashTime > 0) {
+    player.x += player.dashVx * dt;
+    player.y += player.dashVy * dt;
+    player.dashTime -= dt;
+    if (Math.random() < 0.8) {
+      particles.push({ type:'dot', x:player.x, y:player.y,
+        vx:rand(-20,20), vy:rand(-20,20), life:0.4, maxLife:0.4,
+        color:'#44ddff', r:rand(3,5) });
+    }
+  } else {
+    let mx = 0, my = 0;
+    if (keys['ArrowLeft'] || keys['a'] || keys['A']) mx -= 1;
+    if (keys['ArrowRight']|| keys['d'] || keys['D']) mx += 1;
+    if (keys['ArrowUp']   || keys['w'] || keys['W']) my -= 1;
+    if (keys['ArrowDown'] || keys['s'] || keys['S']) my += 1;
+    mx += joy.vec.x; my += joy.vec.y;
+    const ml = Math.hypot(mx, my);
+    if (ml > 0) { mx /= ml; my /= ml; player.moveX = mx; player.moveY = my; }
+    player.x += mx * STATS.playerSpd() * dt;
+    player.y += my * STATS.playerSpd() * dt;
+  }
 
   cam.x = player.x; cam.y = player.y;
 
@@ -1263,17 +1398,19 @@ function update(dt) {
   // ── Player bullets ──
   for (const b of bullets) {
     if (!b.alive) continue;
-    b.x += b.vx * dt; b.y += b.vy * dt;
-    b.traveled += Math.hypot(b.vx * dt, b.vy * dt);
+    const stepX = b.vx * dt, stepY = b.vy * dt;
+    b.x += stepX; b.y += stepY;
+    b.traveled += Math.sqrt(stepX*stepX + stepY*stepY);
     if (b.traveled > b.range) {
-      if (b.aoe > 0) explode(b.x, b.y, b.aoe);
+      if (b.aoe > 0) explode(b.x, b.y, b.aoe, b.dmg, 1, b.napalm);
       b.alive = false; continue;
     }
     for (const e of enemies) {
       if (!e.alive || !b.alive) continue;
-      if (dist(e.x, e.y, b.x, b.y) < e.r + b.r) {
-        // instant kill chance
-        if (Math.random() < b.instaKillChance && !e.isBoss) {
+      const dx = e.x - b.x, dy = e.y - b.y;
+      const rr = e.r + b.r;
+      if (dx*dx + dy*dy < rr*rr) {
+        if (Math.random() < b.deathTouchCh && !e.isBoss) {
           hitEnemy(e, 99999);
           b.alive = false;
           break;
@@ -1282,15 +1419,17 @@ function update(dt) {
           player.hp = Math.min(player.maxHp, player.hp + b.dmg * player.upgrades.vampirism * 0.01);
         }
         hitEnemy(e, b.dmg);
-        // chain lightning effect for lightning gun
         if (b.chain && e.alive) chainLightning(e, b, b.dmg * 0.6, 3);
         b.pierced++;
-        if (b.aoe > 0) explode(b.x, b.y, b.aoe, 0.6);
-        if (b.pierced >= b.pierce) { b.alive = false; break; }
+        if (b.pierced >= b.pierce) {
+          if (b.aoe > 0) explode(b.x, b.y, b.aoe, b.dmg, 0.7, b.napalm);
+          b.alive = false;
+          break;
+        }
       }
     }
   }
-  bullets = bullets.filter(b => b.alive);
+  for (let i = bullets.length - 1; i >= 0; i--) if (!bullets[i].alive) bullets.splice(i, 1);
 
   // ── Enemy bullets ──
   for (const b of enemyBullets) {
@@ -1396,16 +1535,42 @@ function update(dt) {
   // ── Pickups ──
   for (const p of pickups) {
     if (!p.alive) continue;
+    p.life -= dt;
+    if (p.life <= 0) { p.alive = false; continue; }
     if (dist(player.x, player.y, p.x, p.y) < player.r + p.r + 4) {
       if (p.type === 'hp') {
         player.hp = Math.min(player.maxHp, player.hp + 25);
         spawnParticles(player.x, player.y, '#ff4466', 12, 100, 0.5);
         sfx.pickup();
+        vibrate(15);
       }
       p.alive = false;
     }
   }
   pickups = pickups.filter(p => p.alive);
+
+  // ── Fire patches (napalm) ──
+  for (const fp of firePatches) {
+    if (!fp.alive) continue;
+    fp.life -= dt;
+    if (fp.life <= 0) { fp.alive = false; continue; }
+    const r2 = fp.r * fp.r;
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const dx = e.x - fp.x, dy = e.y - fp.y;
+      if (dx*dx + dy*dy < r2) e.hp -= fp.dps * dt;
+      if (e.hp <= 0 && e.alive) killEnemy(e);
+    }
+    // emit fire particles
+    if (Math.random() < 0.6) {
+      const a = Math.random() * TAU, rr = Math.sqrt(Math.random()) * fp.r;
+      particles.push({ type:'dot',
+        x: fp.x + Math.cos(a)*rr, y: fp.y + Math.sin(a)*rr,
+        vx: rand(-10,10), vy: rand(-40,-15),
+        life:0.5, maxLife:0.5, color: Math.random()<0.5?'#ff6622':'#ffcc00', r:rand(2,4) });
+    }
+  }
+  firePatches = firePatches.filter(fp => fp.alive);
 
   // ── Particles ──
   for (const p of particles) {
@@ -1475,6 +1640,7 @@ function render() {
   applyCameraTransform();
   drawGrid();
   drawBloodDecals();
+  drawFirePatches();
   drawOrbs();
   drawPickups();
   drawParticles();
@@ -1487,6 +1653,7 @@ function render() {
 
   resetTransform();
   drawMinimap();
+  updateDashBtn();
 }
 
 
@@ -1540,7 +1707,8 @@ function applyUpgrade(upg) {
       player.hp = Math.min(player.hp + 30, player.maxHp);
       break;
     case 'shield':
-      player.shieldCharges = Math.min(player.shieldCharges + 1, player.upgrades.shield);
+      // refill to max on every shield upgrade
+      player.shieldCharges = player.upgrades.shield;
       break;
     case 'ammoMax':
       ammo = Math.min(STATS.maxAmmo(), ammo + 10);
@@ -1632,21 +1800,30 @@ function cycleWeapon() {
 
 function gameOver() {
   gameRunning = false;
+  const isNewHi = player.score > hiScore;
+  if (isNewHi) { hiScore = player.score; localStorage.setItem('zs_hi', hiScore); }
+  if (wakeLockSentinel) { try { wakeLockSentinel.release(); } catch(e){} wakeLockSentinel = null; }
+  vibrate([0, 60, 40, 60, 40, 200]);
   ui.overlay.innerHTML = `
     <h1>GAME OVER</h1>
+    ${isNewHi ? '<div class="sub" style="color:#ffcc00;font-size:14px;font-weight:bold;">★ NEW HIGH SCORE ★</div>' : ''}
     <div class="stat-grid">
       <div>Wave:</div><div><span>${wave.current}</span></div>
       <div>Kills:</div><div><span>${player.kills}</span></div>
       <div>Level:</div><div><span>${player.level}</span></div>
       <div>Score:</div><div><span>${player.score}</span></div>
+      <div>Best:</div><div><span>${hiScore}</span></div>
     </div>
     <button class="big-btn purple" id="start-btn">PLAY AGAIN</button>`;
   ui.overlay.style.display = 'flex';
   $('start-btn').addEventListener('click', startGame);
-  $('start-btn').addEventListener('touchend', e => { e.preventDefault(); startGame(); });
+  $('start-btn').addEventListener('touchend', e => { e.preventDefault(); startGame(); }, { passive:false });
 }
 
 function startGame() {
+  resumeAudio();
+  requestWakeLock();
+
   ui.overlay.style.display    = 'none';
   ui.upgPanel.style.display   = 'none';
   ui.wpnPicker.style.display  = 'none';
@@ -1655,13 +1832,15 @@ function startGame() {
 
   Object.assign(player, {
     x:0, y:0, r:15, hp:100, maxHp:100, baseSpeed:175,
-    angle:0, invincible:0, kills:0, score:0, xp:0, xpNext:100, level:1,
+    angle:0, moveX:0, moveY:0, invincible:0,
+    kills:0, score:0, xp:0, xpNext:100, level:1,
     slow:0, slowFactor:1, shieldCharges:0,
+    dashTime:0, dashCd:0, dashVx:0, dashVy:0,
     upgrades: newUpgrades(),
   });
 
   bullets=[]; enemyBullets=[]; enemies=[]; orbs=[]; pickups=[];
-  particles=[]; damageNums=[]; bloodDecals=[]; lightnings=[];
+  particles=[]; damageNums=[]; bloodDecals=[]; lightnings=[]; firePatches=[];
 
   Object.assign(wave, {
     current:1, spawnInterval:1.4, spawnTimer:0,
@@ -1683,6 +1862,7 @@ function startGame() {
   ui.killsBadge.textContent = 'Kills 0';
   ui.scoreBadge.textContent = 'Score 0';
   ui.waveBadge.textContent  = 'Wave 1';
+  if (ui.hiBadge) ui.hiBadge.textContent = `Best ${hiScore}`;
 
   updateHPBar(); updateXPBar(); updateAmmoBar();
   updateJoyCenter();
@@ -1696,6 +1876,13 @@ function startGame() {
 }
 
 ui.startBtn.addEventListener('click', startGame);
-ui.startBtn.addEventListener('touchend', e => { e.preventDefault(); startGame(); });
+ui.startBtn.addEventListener('touchend', e => { e.preventDefault(); startGame(); }, { passive:false });
+
+/* Service worker — offline / installable PWA */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
 
 requestAnimationFrame(gameLoop);

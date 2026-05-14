@@ -1,0 +1,19 @@
+{
+  "name": "Zombie Shooter",
+  "short_name": "ZombieShooter",
+  "description": "Top-down zombie shooter — waves, weapons, bosses.",
+  "lang": "en",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#080810",
+  "theme_color": "#080810",
+  "categories": ["games", "action"],
+  "icons": [
+    { "src": "./icon-192.png",          "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png",          "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

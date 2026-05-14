@@ -3,7 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#0a0a0a">
+<meta name="theme-color" content="#080810">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Zombie Shooter">
+<meta name="application-name" content="Zombie Shooter">
+<meta name="description" content="Top-down zombie shooter — survive waves, level up, hunt bosses.">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <title>Zombie Shooter</title>
 <style>
 *  { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; }
@@ -112,16 +121,18 @@ canvas { display:block; position:fixed; inset:0; }
   cursor:pointer; touch-action:manipulation; border:2px solid;
 }
 #weapon-btn {
-  width:52px; height:52px;
-  background:radial-gradient(circle,rgba(0,150,255,.4),rgba(0,40,100,.7));
-  border-color:rgba(0,150,255,.6);
+  width:60px; height:60px;
+  background:radial-gradient(circle,rgba(127,0,255,.45),rgba(40,0,80,.75));
+  border-color:rgba(180,80,255,.7);
 }
 #shoot-btn {
-  width:84px; height:84px;
-  background:radial-gradient(circle,rgba(255,40,80,.45),rgba(140,0,30,.75));
-  border-color:rgba(255,40,80,.7);
-  font-size:11px;
+  width:92px; height:92px;
+  background:radial-gradient(circle,rgba(0,200,255,.5),rgba(0,80,140,.8));
+  border-color:rgba(0,200,255,.7);
+  font-size:14px;
+  transition:transform .08s;
 }
+.act-btn:active { transform:scale(.92); }
 
 /* ──────────── OVERLAYS ──────────── */
 #overlay {
@@ -230,6 +241,7 @@ canvas { display:block; position:fixed; inset:0; }
     <div class="badge b-wave"  id="wave-badge">Wave 1</div>
     <div class="badge b-kills" id="kills-badge">Kills 0</div>
     <div class="badge b-score" id="score-badge">Score 0</div>
+    <div class="badge b-score" id="hi-badge" style="color:#ffcc00;">Best 0</div>
   </div>
 
   <!-- Boss bar -->
@@ -260,14 +272,19 @@ canvas { display:block; position:fixed; inset:0; }
   <!-- Controls -->
   <div id="joystick-zone"><div id="joystick-knob"></div></div>
   <div id="action-btns">
-    <div id="weapon-btn" class="act-btn">SWAP<br>GUN</div>
-    <div id="shoot-btn"  class="act-btn">FIRE</div>
+    <div id="weapon-btn" class="act-btn">GUNS</div>
+    <div id="shoot-btn"  class="act-btn">DASH</div>
   </div>
 
   <!-- Start overlay -->
   <div id="overlay">
     <h1>ZOMBIE SHOOTER</h1>
-    <div class="sub">Top-down arena. Auto-aim. Survive waves, level up, unlock weapons, kill bosses.</div>
+    <div class="sub">
+      Авто-прицел, авто-стрельба. Двигайся джойстиком (слева),<br>
+      <b style="color:#44ddff">DASH</b> — рывок с инвулом, <b style="color:#cc88ff">GUNS</b> — смена оружия.<br>
+      Переживай волны, качайся, открывай 12 пушек, выноси боссов.
+    </div>
+    <div id="hi-overlay" style="font-size:13px;color:#ffcc00;margin-top:4px;"></div>
     <button class="big-btn" id="start-btn">START GAME</button>
   </div>
 
