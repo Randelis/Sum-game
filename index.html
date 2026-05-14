@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Zombie Shooter</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #0a0a0a; overflow: hidden; touch-action: none; font-family: 'Arial', sans-serif; }
+canvas { display: block; position: fixed; inset: 0; }
+
+/* ── TOP HUD ── */
+#hud-top {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+  padding: 8px 10px 0;
+  background: linear-gradient(180deg,rgba(0,0,0,.75) 0%,transparent 100%);
+  pointer-events: none;
+  display: flex; flex-direction: column; gap: 4px;
+}
+#hp-row { display: flex; align-items: center; gap: 6px; }
+#hp-icon { font-size: 14px; }
+#hp-bar-wrap { flex: 1; height: 14px; background: #2a0000; border-radius: 7px; border: 1px solid #550000; overflow: hidden; }
+#hp-bar { height: 100%; background: linear-gradient(90deg,#cc0022,#ff4466); border-radius: 7px; transition: width .1s; }
+#hp-text { font-size: 11px; color: #ffaaaa; min-width: 55px; text-align: right; }
+
+#weapon-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #aaddff; }
+#weapon-name { font-weight: bold; color: #ffffff; font-size: 13px; }
+#ammo-bar-wrap { flex:1; height:6px; background:#112; border-radius:3px; overflow:hidden; }
+#ammo-bar { height:100%; background:linear-gradient(90deg,#0088ff,#44ccff); border-radius:3px; transition:width .08s; }
+#reload-text { font-size:11px; color:#ffcc44; font-weight:bold; display:none; }
+
+/* ── BOTTOM HUD ── */
+#xp-bar-wrap { position:fixed; bottom:0; left:0; right:0; height:6px; background:rgba(0,0,0,.4); z-index:10; pointer-events:none; }
+#xp-bar { height:100%; background:linear-gradient(90deg,#7f00ff,#e100ff); transition:width .15s; }
+
+#badges {
+  position:fixed; top:8px; right:10px; z-index:11; pointer-events:none;
+  display:flex; flex-direction:column; align-items:flex-end; gap:3px;
+}
+#level-badge { background:rgba(127,0,255,.85); color:#fff; font-size:12px; font-weight:bold; padding:2px 8px; border-radius:10px; }
+#score-badge { color:#ffcc00; font-size:11px; font-weight:bold; }
+#wave-badge  { color:#aaffaa; font-size:11px; font-weight:bold; }
+
+/* ── MINI MAP ── */
+#minimap {
+  position:fixed; bottom:18px; right:10px; z-index:11;
+  width:90px; height:90px;
+  border-radius:6px; border:1px solid rgba(255,255,255,.2);
+  background:rgba(0,0,0,.55); overflow:hidden;
+}
+#minimap canvas { position:absolute; inset:0; }
+
+/* ── BOSS BAR ── */
+#boss-bar-wrap {
+  position:fixed; top:60px; left:50%; transform:translateX(-50%);
+  width:min(340px,80vw); z-index:12; display:none; pointer-events:none;
+}
+#boss-bar-label { text-align:center; font-size:12px; color:#ff4400; font-weight:bold; margin-bottom:3px; text-shadow:0 0 8px #ff4400; }
+#boss-bar-outer { height:14px; background:#200; border:1px solid #660000; border-radius:7px; overflow:hidden; }
+#boss-bar { height:100%; background:linear-gradient(90deg,#880000,#ff2200); border-radius:7px; transition:width .1s; }
+
+/* ── OVERLAYS ── */
+#overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,.9);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  z-index:100; color:#fff; gap:12px; padding:20px;
+}
+#overlay h1 { font-size:clamp(32px,9vw,62px); color:#ff2244; text-shadow:0 0 25px #ff2244,0 0 50px #ff2244; letter-spacing:2px; }
+#overlay .sub { font-size:13px; color:#888; text-align:center; max-width:320px; line-height:1.5; }
+#overlay .stat-grid {
+  display:grid; grid-template-columns:1fr 1fr; gap:6px 18px;
+  font-size:12px; color:#aaa; max-width:280px; width:100%;
+}
+#overlay .stat-grid span { color:#fff; font-weight:bold; }
+.big-btn {
+  background:linear-gradient(135deg,#ff2244,#990022); color:#fff;
+  border:none; border-radius:14px; padding:14px 44px;
+  font-size:18px; font-weight:bold; cursor:pointer;
+  box-shadow:0 0 22px rgba(255,34,68,.5); touch-action:manipulation; margin-top:6px;
+}
+.big-btn.purple { background:linear-gradient(135deg,#7f00ff,#440088); box-shadow:0 0 22px rgba(127,0,255,.5); }
+.big-btn:active { transform:scale(.96); }
+
+/* ── UPGRADE PANEL ── */
+#upgrade-panel {
+  position:fixed; inset:0; background:rgba(0,0,0,.93);
+  display:none; flex-direction:column; align-items:center; justify-content:center;
+  z-index:200; color:#fff; gap:14px; padding:20px;
+}
+#upgrade-panel h2 { font-size:22px; color:#e100ff; text-shadow:0 0 14px #e100ff; }
+#upgrade-panel .lvl-txt { font-size:13px; color:#aaa; }
+#upgrade-choices { display:flex; flex-direction:column; gap:11px; width:100%; max-width:370px; }
+.upgrade-card {
+  background:linear-gradient(135deg,rgba(100,0,200,.22),rgba(0,0,0,.55));
+  border:1.5px solid rgba(127,0,255,.55); border-radius:14px;
+  padding:13px 16px; cursor:pointer; transition:all .15s; touch-action:manipulation;
+}
+.upgrade-card:active { transform:scale(.97); background:rgba(127,0,255,.35); }
+.upgrade-card .u-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+.upgrade-card .u-name { font-size:15px; font-weight:bold; }
+.upgrade-card .u-lvl  { font-size:11px; color:#e100ff; }
+.upgrade-card .u-desc { font-size:12px; color:#ccc; }
+.upgrade-card .u-stars { font-size:10px; color:#ffcc00; letter-spacing:1px; }
+
+/* ── WEAPON PICKER ── */
+#weapon-picker {
+  position:fixed; inset:0; background:rgba(0,0,0,.9);
+  display:none; flex-direction:column; align-items:center; justify-content:center;
+  z-index:300; color:#fff; gap:14px; padding:20px;
+}
+#weapon-picker h2 { font-size:20px; color:#44ccff; text-shadow:0 0 12px #44ccff; }
+#weapon-list { display:flex; flex-direction:column; gap:10px; width:100%; max-width:370px; }
+.weapon-card {
+  background:linear-gradient(135deg,rgba(0,80,160,.25),rgba(0,0,0,.55));
+  border:1.5px solid rgba(0,136,255,.45); border-radius:13px;
+  padding:12px 15px; cursor:pointer; touch-action:manipulation;
+}
+.weapon-card:active { background:rgba(0,136,255,.3); transform:scale(.97); }
+.weapon-card .w-name { font-size:15px; font-weight:bold; color:#88ddff; }
+.weapon-card .w-stats { font-size:11px; color:#aaa; margin-top:3px; }
+
+/* ── NOTIFICATIONS ── */
+#notif {
+  position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  font-size:clamp(22px,6vw,44px); font-weight:bold;
+  text-shadow:0 0 30px currentColor; pointer-events:none;
+  z-index:50; display:none; text-align:center; line-height:1.3;
+}
+
+/* ── JOYSTICK ── */
+#joystick-zone {
+  position:fixed; bottom:28px; left:16px;
+  width:115px; height:115px; border-radius:50%;
+  background:rgba(255,255,255,.07); border:2px solid rgba(255,255,255,.13);
+  z-index:20; touch-action:none;
+}
+#joystick-knob {
+  position:absolute; width:48px; height:48px;
+  background:rgba(255,255,255,.22); border-radius:50%;
+  top:50%; left:50%; transform:translate(-50%,-50%);
+  border:2px solid rgba(255,255,255,.35);
+  transition:background .1s;
+}
+
+/* ── ACTION BUTTONS ── */
+#action-btns {
+  position:fixed; bottom:28px; right:12px;
+  display:flex; flex-direction:column; gap:10px; align-items:flex-end;
+  z-index:20;
+}
+.action-btn {
+  border-radius:50%; border:2px solid; display:flex;
+  align-items:center; justify-content:center;
+  font-size:10px; font-weight:bold; text-align:center;
+  color:#fff; cursor:pointer; touch-action:manipulation; line-height:1.2;
+}
+#shoot-btn {
+  width:86px; height:86px;
+  background:radial-gradient(circle,rgba(255,34,68,.45),rgba(153,0,34,.75));
+  border-color:rgba(255,34,68,.7);
+}
+#weapon-btn {
+  width:58px; height:58px;
+  background:radial-gradient(circle,rgba(0,136,255,.35),rgba(0,50,120,.65));
+  border-color:rgba(0,136,255,.6); font-size:9px;
+}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- TOP HUD -->
+<div id="hud-top">
+  <div id="hp-row">
+    <span id="hp-icon">❤</span>
+    <div id="hp-bar-wrap"><div id="hp-bar"></div></div>
+    <span id="hp-text">100/100</span>
+  </div>
+  <div id="weapon-row">
+    <span id="weapon-name">Pistol</span>
+    <div id="ammo-bar-wrap"><div id="ammo-bar"></div></div>
+    <span id="reload-text">RELOAD…</span>
+  </div>
+</div>
+
+<!-- BADGES -->
+<div id="badges">
+  <div id="level-badge">Lv 1</div>
+  <div id="score-badge">Kills: 0</div>
+  <div id="wave-badge">Wave 1</div>
+</div>
+
+<!-- BOSS BAR -->
+<div id="boss-bar-wrap">
+  <div id="boss-bar-label">BOSS</div>
+  <div id="boss-bar-outer"><div id="boss-bar"></div></div>
+</div>
+
+<!-- XP BAR -->
+<div id="xp-bar-wrap"><div id="xp-bar" style="width:0%"></div></div>
+
+<!-- MINIMAP -->
+<div id="minimap"><canvas id="mmc"></canvas></div>
+
+<!-- NOTIFICATION -->
+<div id="notif"></div>
+
+<!-- JOYSTICK -->
+<div id="joystick-zone"><div id="joystick-knob"></div></div>
+
+<!-- ACTION BUTTONS -->
+<div id="action-btns">
+  <div id="shoot-btn"  class="action-btn">FIRE</div>
+  <div id="weapon-btn" class="action-btn">SWITCH<br>GUN</div>
+</div>
+
+<!-- MAIN OVERLAY (start / game-over) -->
+<div id="overlay">
+  <h1>ZOMBIE<br>SHOOTER</h1>
+  <div class="sub">Убивай зомби · Собирай опыт · Прокачивай оружие · Побеждай боссов</div>
+  <button class="big-btn" id="start-btn">НАЧАТЬ ИГРУ</button>
+</div>
+
+<!-- UPGRADE PANEL -->
+<div id="upgrade-panel">
+  <h2>⬆ LEVEL UP!</h2>
+  <div class="lvl-txt" id="upg-lvl-txt"></div>
+  <div id="upgrade-choices"></div>
+</div>
+
+<!-- WEAPON PICKER -->
+<div id="weapon-picker">
+  <h2>⚙ Выбери оружие</h2>
+  <div id="weapon-list"></div>
+  <button class="big-btn purple" id="wpn-close-btn" style="padding:10px 30px;font-size:14px;">Закрыть</button>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
