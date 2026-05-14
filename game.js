@@ -320,6 +320,18 @@ let bloodDecals  = [];
 let lightnings   = [];   // for lightning gun visuals
 let firePatches  = [];   // napalm ground fire
 
+// ── Kill streak ──
+let killStreak = 0;
+let streakMult = 1;
+
+// ── Active event ──
+let activeEvent   = null;  // { id, name, color, timer, dmgMult, spdMult, xpMult }
+let eventCooldown = 0;     // waves before next event can trigger
+let eventBgTint   = null;
+
+// ── Wave variant ──
+let waveVariant = null;    // null | 'speed' | 'swarm' | 'elite' | 'sniper'
+
 let shootTimer  = 0;
 let currentBoss = null;
 
@@ -446,7 +458,9 @@ function makeEnemy(def, x, y, isBoss=false) {
 }
 
 function spawnEnemyType(key, x, y) {
-  enemies.push(makeEnemy(ENEMY_DEFS[key], x, y, false));
+  const e = makeEnemy(ENEMY_DEFS[key], x, y, false);
+  if (activeEvent?.id === 'bloodmoon') { e.hp *= 1.4; e.maxHp *= 1.4; }
+  enemies.push(e);
 }
 
 function spawnBoss(bossIdx) {
@@ -462,6 +476,19 @@ function spawnBoss(bossIdx) {
 }
 
 function pickEnemyType() {
+  if (waveVariant === 'speed') {
+    const r = Math.random();
+    return r < 0.6 ? 'fast' : r < 0.8 ? 'bouncer' : 'ghost';
+  }
+  if (waveVariant === 'swarm')  return Math.random() < 0.85 ? 'crawler' : 'fast';
+  if (waveVariant === 'elite') {
+    if (wave.current >= 10 && Math.random() < 0.3) return 'berserker';
+    return Math.random() < 0.55 ? 'armored' : 'tank';
+  }
+  if (waveVariant === 'sniper') {
+    const r = Math.random();
+    return r < 0.4 ? 'spitter' : r < 0.7 ? 'bomber' : 'tank';
+  }
   const w = wave.current, r = Math.random();
   if (w >= 10 && r < 0.05) return 'berserker';
   if (w >= 8  && r < 0.10) return 'ghost';
@@ -483,16 +510,39 @@ function startNextWaveSpawn() {
   wave.bossSpawned = false;
   wave.spawnTimer = 0;
   ui.waveBadge.textContent = `Wave ${wave.current}`;
+
+  if (waveVariant) {
+    const variantDefs = {
+      speed:  { name:'⚡ СКОРОСТНАЯ ВОЛНА', color:'#00ffcc', enemyMult:1.5,  intervalMult:0.55 },
+      swarm:  { name:'🐛 РОЙ',             color:'#ffcc00', enemyMult:2.2,  intervalMult:0.40 },
+      elite:  { name:'💀 ЭЛИТА',           color:'#ff4400', enemyMult:0.55, intervalMult:1.0  },
+      sniper: { name:'🎯 СНАЙПЕРЫ',        color:'#ff00ff', enemyMult:1.0,  intervalMult:0.85 },
+    };
+    const vd = variantDefs[waveVariant];
+    showNotif(vd.name, vd.color);
+    wave.enemiesPerWave = Math.max(4, Math.floor(wave.enemiesPerWave * vd.enemyMult));
+    wave.spawnInterval  = Math.max(0.15, wave.spawnInterval * vd.intervalMult);
+  }
 }
 
 function finishWave() {
   if (wave.betweenWaves) return;
   wave.betweenWaves = true;
-  wave.betweenTimer = 3.5;
+  wave.betweenTimer = 2.0;
   wave.current++;
   wave.enemiesPerWave = Math.floor(8 + wave.current * 3.2);
   wave.spawnInterval  = Math.max(0.30, 1.4 - wave.current * 0.05);
   showNotif(`Wave ${wave.current - 1} cleared!`, '#aaffaa');
+
+  if (eventCooldown > 0) eventCooldown--;
+  tryTriggerEvent();
+
+  waveVariant = null;
+  if (!isBossWave() && Math.random() < 0.38) {
+    const opts = ['speed', 'swarm', 'elite'];
+    if (wave.current >= 5) opts.push('sniper');
+    waveVariant = opts[Math.floor(Math.random() * opts.length)];
+  }
 }
 
 
@@ -520,7 +570,8 @@ function fireBullets(angle) {
   const aoe    = STATS.aoe();
   const spread = STATS.spread();
   const isCrit = Math.random() < STATS.critChance();
-  const finalDmg = isCrit ? dmg * STATS.critMult() : dmg;
+  const evDmgMult = activeEvent?.dmgMult || 1;
+  const finalDmg  = (isCrit ? dmg * STATS.critMult() : dmg) * evDmgMult;
   const color  = W().color;
   const chain  = W().chain || false;
 
@@ -666,9 +717,11 @@ function chainLightning(srcEnemy, originBullet, dmg, hopsLeft) {
 function killEnemy(e) {
   e.alive = false;
   player.kills++;
-  player.score += e.isBoss ? 500 : Math.max(5, Math.round(e.xp * 0.6));
+  const baseScore = e.isBoss ? 500 : Math.max(5, Math.round(e.xp * 0.6));
+  player.score += Math.round(baseScore * streakMult);
   ui.killsBadge.textContent = `Kills ${player.kills}`;
   ui.scoreBadge.textContent = `Score ${player.score}`;
+  if (!e.isBoss) { killStreak++; checkStreak(); }
   if (e.isBoss) vibrate([0, 80, 60, 80, 60, 120]);
 
   sfx.die();
@@ -721,6 +774,8 @@ function damagePlayer(dmg) {
   }
   player.hp -= dmg;
   player.invincible = 0.5;
+  if (killStreak >= 5) showNotif(`💔 СЕРИЯ ${killStreak} ПРЕРВАНА`, '#ff4444');
+  killStreak = 0; streakMult = 1;
   addShake(5);
   sfx.hurt();
   spawnParticles(player.x, player.y, '#ff2244', 8, 80, 0.3);
@@ -747,6 +802,62 @@ function showNotif(text, color='#ffffff') {
   ui.notif.style.display = 'block';
   clearTimeout(ui.notif._t);
   ui.notif._t = setTimeout(() => { ui.notif.style.display = 'none'; }, 2200);
+}
+
+function checkStreak() {
+  const thresholds = [5,   10,             20,          35];
+  const mults      = [1.2, 1.5,            2.0,         3.0];
+  const names      = ['УБИЙЦА', 'НЕОСТАНОВИМЫЙ', 'БОГОПОДОБНЫЙ', 'ЛЕГЕНДАРНЫЙ'];
+  const colors     = ['#ffff00', '#ffaa00', '#ff4400', '#ff00ff'];
+  for (let i = thresholds.length - 1; i >= 0; i--) {
+    if (killStreak >= thresholds[i]) {
+      if (streakMult < mults[i]) {
+        streakMult = mults[i];
+        showNotif(`🔥 ${names[i]}! ×${mults[i]} урон`, colors[i]);
+        addShake(6);
+        spawnParticles(player.x, player.y, colors[i], 18, 140, 0.7);
+      }
+      break;
+    }
+  }
+}
+
+const EVENT_POOL = [
+  { id:'bloodmoon',  name:'🌑 КРОВАВАЯ ЛУНА',  color:'#ff2244', duration:30, xpMult:2,   bgTint:'rgba(100,0,0,0.22)'  },
+  { id:'frenzy',     name:'⚡ ЯРОСТЬ ОРДЫ',     color:'#ffaa00', duration:12,             bgTint:'rgba(80,30,0,0.22)'  },
+  { id:'berserk',    name:'💢 РЕЖИМ БЕРСЕРКА',  color:'#ff6600', duration:12, dmgMult:2,  bgTint:'rgba(50,10,0,0.22)'  },
+  { id:'adrenaline', name:'💨 АДРЕНАЛИН',       color:'#00ccff', duration:12, spdMult:1.8,bgTint:'rgba(0,20,50,0.22)'  },
+  { id:'craterain',  name:'📦 ГРУЗ С НЕБА',     color:'#44ff88', duration:0                                            },
+  { id:'invasion',   name:'💀 НАШЕСТВИЕ',       color:'#ff0066', duration:0                                            },
+];
+
+function tryTriggerEvent() {
+  if (isBossWave() || eventCooldown > 0) return;
+  if (Math.random() > 0.55) return;
+  eventCooldown = 2;
+  const ev = EVENT_POOL[Math.floor(Math.random() * EVENT_POOL.length)];
+  setTimeout(() => {
+    if (!gameRunning) return;
+    showNotif(`⚡ ИВЕНТ: ${ev.name}!`, ev.color);
+    addShake(8);
+    spawnParticles(player.x, player.y, ev.color, 24, 180, 1.0);
+    if (ev.id === 'craterain') {
+      for (let i = 0; i < 6; i++) {
+        pickups.push({ type: Math.random() < 0.55 ? 'hp' : 'ammo',
+          x: player.x + rand(-280, 280), y: player.y + rand(-280, 280),
+          r: 10, alive: true, color: '#44ff88', life: 30 });
+      }
+    } else if (ev.id === 'invasion') {
+      const count = Math.min(20, 6 + Math.floor(wave.current * 1.2));
+      for (let i = 0; i < count; i++) {
+        const pos = getSpawnPos();
+        enemies.push(makeEnemy(ENEMY_DEFS[pickEnemyType()], pos.x, pos.y));
+      }
+    } else if (ev.duration > 0) {
+      activeEvent = { ...ev, timer: ev.duration };
+      eventBgTint = ev.bgTint || null;
+    }
+  }, 1600);
 }
 
 
@@ -1360,8 +1471,9 @@ function update(dt) {
     mx += joy.vec.x; my += joy.vec.y;
     const ml = Math.hypot(mx, my);
     if (ml > 0) { mx /= ml; my /= ml; player.moveX = mx; player.moveY = my; }
-    player.x += mx * STATS.playerSpd() * dt;
-    player.y += my * STATS.playerSpd() * dt;
+    const evSpdMult = activeEvent?.spdMult || 1;
+    player.x += mx * STATS.playerSpd() * evSpdMult * dt;
+    player.y += my * STATS.playerSpd() * evSpdMult * dt;
   }
 
   cam.x = player.x; cam.y = player.y;
@@ -1466,8 +1578,10 @@ function update(dt) {
     } else {
       const dx = player.x - e.x, dy = player.y - e.y;
       const d  = Math.hypot(dx, dy) || 1;
-      e.x += dx/d * e.speed * dt;
-      e.y += dy/d * e.speed * dt;
+      const evESpdMult = activeEvent
+        ? (activeEvent.id === 'frenzy' ? 2.0 : activeEvent.id === 'bloodmoon' ? 1.5 : 1) : 1;
+      e.x += dx/d * e.speed * evESpdMult * dt;
+      e.y += dy/d * e.speed * evESpdMult * dt;
       e.angle = Math.atan2(dy, dx);
 
       // Ranged
@@ -1543,6 +1657,11 @@ function update(dt) {
         spawnParticles(player.x, player.y, '#ff4466', 12, 100, 0.5);
         sfx.pickup();
         vibrate(15);
+      } else if (p.type === 'ammo') {
+        ammo = STATS.maxAmmo();
+        reloading = false;
+        spawnParticles(player.x, player.y, '#44aaff', 10, 100, 0.5);
+        sfx.reload();
       }
       p.alive = false;
     }
@@ -1588,6 +1707,16 @@ function update(dt) {
 
   for (const L of lightnings) L.life -= dt;
   lightnings = lightnings.filter(L => L.life > 0);
+
+  // ── Active event countdown ──
+  if (activeEvent && activeEvent.timer > 0) {
+    activeEvent.timer -= dt;
+    if (activeEvent.timer <= 0) {
+      showNotif(`${activeEvent.name} — завершился`, '#888888');
+      activeEvent = null;
+      eventBgTint = null;
+    }
+  }
 
   // ── Wave spawning ──
   if (wave.betweenWaves) {
@@ -1636,6 +1765,10 @@ function render() {
   resetTransform();
   ctx.fillStyle = '#0c0c18';
   ctx.fillRect(0, 0, canvas.width / ctx._dpr, canvas.height / ctx._dpr);
+  if (eventBgTint) {
+    ctx.fillStyle = eventBgTint;
+    ctx.fillRect(0, 0, canvas.width / ctx._dpr, canvas.height / ctx._dpr);
+  }
 
   applyCameraTransform();
   drawGrid();
@@ -1672,7 +1805,7 @@ function gameLoop(ts) {
 function xpForLevel(lvl) { return Math.floor(100 * Math.pow(1.22, lvl - 1)); }
 
 function addXP(amount) {
-  player.xp += amount;
+  player.xp += amount * (activeEvent?.xpMult || 1);
   sfx.pickup();
   if (player.xp >= player.xpNext && gameRunning) {
     player.xp    -= player.xpNext;
@@ -1841,6 +1974,10 @@ function startGame() {
 
   bullets=[]; enemyBullets=[]; enemies=[]; orbs=[]; pickups=[];
   particles=[]; damageNums=[]; bloodDecals=[]; lightnings=[]; firePatches=[];
+
+  killStreak = 0; streakMult = 1;
+  activeEvent = null; eventCooldown = 0; eventBgTint = null;
+  waveVariant = null;
 
   Object.assign(wave, {
     current:1, spawnInterval:1.4, spawnTimer:0,
