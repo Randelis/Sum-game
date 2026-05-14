@@ -122,6 +122,7 @@ const sfx = {
   reload:   () => tone(300,'square',  0.12,0.06,500),
   hurt:     () => tone(200,'sawtooth',0.18,0.13,80),
   boss:     () => tone(55, 'sawtooth',1.2, 0.30,40),
+  phaseTransition: () => tone(45,'sawtooth',0.7,0.35,22),
   unlock:   () => tone(660,'triangle',0.30,0.14,1320),
   shieldHit:() => tone(800,'sine',    0.15,0.10,1600),
   dash:     () => tone(520,'square',  0.18,0.08,1100),
@@ -273,6 +274,13 @@ const BOSS_DEFS = [
     hp:w=>780+w*240, spd:w=>72+w*4, dmg:24, xp:320,
     abilities:['spawnSpiders','webBurst','poisonCloud'],
     ranged:true, shootInterval:1.2 },
+];
+
+const BOSS_PHASES = [
+  { hpPct:0.60, speedMult:1.35, cdMin:1.6, cdMax:3.0, dmgMult:1.4,
+    msg:'⚡ ЯРОСТЬ!',          color:'#ff8800' },
+  { hpPct:0.25, speedMult:1.80, cdMin:0.8, cdMax:1.6, dmgMult:2.0,
+    msg:'💀 ПОСЛЕДНЯЯ ФАЗА!', color:'#ff2244' },
 ];
 
 // ── UPGRADES ──
@@ -428,7 +436,7 @@ function getSpawnPos() {
 
 function makeEnemy(def, x, y, isBoss=false) {
   const w = wave.current;
-  return {
+  const e = {
     x, y, r: def.r,
     hp: def.hp(w), maxHp: def.hp(w),
     speed: def.spd(w), baseSpeed: def.spd(w),
@@ -454,7 +462,12 @@ function makeEnemy(def, x, y, isBoss=false) {
     bounceT: Math.random()*TAU, bouncePh:0,
     flash:0, angle:0,
     raging:false,
+    // soulslike boss phase fields (only used when isBoss===true)
+    phase: 1, phaseTransition: 0,
+    windupTimer: 0, windupAbility: null,
+    abilityDmgMult: 1,
   };
+  return e;
 }
 
 function spawnEnemyType(key, x, y) {
@@ -467,6 +480,9 @@ function spawnBoss(bossIdx) {
   const def = BOSS_DEFS[bossIdx % BOSS_DEFS.length];
   const pos = getSpawnPos();
   const e   = makeEnemy(def, pos.x, pos.y, true);
+  e.hp    = Math.round(e.hp    * 1.8);
+  e.maxHp = Math.round(e.maxHp * 1.8);
+  e.armor = 0.20;
   enemies.push(e);
   currentBoss = e;
   ui.bossLabel.textContent = def.name;
@@ -614,7 +630,7 @@ function fireEnemyProjectile(e) {
     enemyBullets.push({
       x:e.x, y:e.y,
       vx:Math.cos(a)*speed, vy:Math.sin(a)*speed,
-      dmg: e.damage * (e.isBoss ? 0.7 : 0.55),
+      dmg: e.damage * (e.isBoss ? (e.abilityDmgMult||1) * 0.7 : 0.55),
       r:7, alive:true, life:3.5,
       color: e.isBoss ? '#ff4400' : '#aaff00',
     });
@@ -681,6 +697,10 @@ function bombExplode(b) {
 function hitEnemy(e, dmg) {
   if (Math.random() < e.dodge) {
     spawnDamageNum(e.x, e.y - e.r, 'MISS', false);
+    return;
+  }
+  if (e.isBoss && e.phaseTransition > 0) {
+    spawnDamageNum(e.x, e.y - e.r - 4, '✦', false);
     return;
   }
   const actual = dmg * (1 - e.armor);
@@ -862,12 +882,38 @@ function tryTriggerEvent() {
 
 
 /* ════════════ 10) BOSS ABILITIES ════════════ */
+function triggerBossPhaseTransition(e, phaseIdx) {
+  const ph = BOSS_PHASES[phaseIdx];
+  e.phase           = phaseIdx + 1;  // 1-based
+  e.phaseTransition = 1.5;
+  e.speed           = e.baseSpeed * ph.speedMult;
+  e.abilityDmgMult  = ph.dmgMult;
+  e.charging        = false;
+  e.windupTimer     = 0;
+  e.windupAbility   = null;
+
+  addShake(20);
+  showNotif(ph.msg, ph.color);
+  sfx.phaseTransition();
+  spawnParticles(e.x, e.y, ph.color, 60, 300, 1.8);
+  particles.push({type:'ring', x:e.x, y:e.y, r:0, maxR:340, life:0.9, maxLife:0.9, color:ph.color});
+  particles.push({type:'ring', x:e.x, y:e.y, r:0, maxR:180, life:0.55, maxLife:0.55, color:'#ffffff'});
+
+  const barColors = [
+    'linear-gradient(90deg,#884400,#ff8800,#ffcc00)',
+    'linear-gradient(90deg,#550000,#ff0000,#ffff00)',
+  ];
+  ui.bossBar.style.background = barColors[phaseIdx];
+  ui.bossLabel.textContent = (currentBoss?.name || '') + ` [Phase ${e.phase + 1}]`;
+}
+
 function doBossAbility(e, ability) {
+  const adm = e.abilityDmgMult || 1;
   switch (ability) {
     case 'slam': {
       addShake(8);
       spawnParticles(e.x, e.y, '#ff2244', 28, 280, 0.9);
-      if (dist(player.x, player.y, e.x, e.y) < 130) damagePlayer(e.damage * 0.7);
+      if (dist(player.x, player.y, e.x, e.y) < 130) damagePlayer(e.damage * adm * 0.7);
       break;
     }
     case 'summon': {
@@ -888,14 +934,14 @@ function doBossAbility(e, ability) {
     }
     case 'poisonCloud': {
       spawnParticles(e.x, e.y, '#00ff44', 24, 130, 1.8);
-      if (dist(player.x, player.y, e.x, e.y) < 110) damagePlayer(e.damage * 0.4);
+      if (dist(player.x, player.y, e.x, e.y) < 110) damagePlayer(e.damage * adm * 0.4);
       break;
     }
     case 'spit': {
       for (let i = 0; i < 6; i++) {
         const a = Math.atan2(player.y-e.y, player.x-e.x) + rand(-0.5, 0.5);
         enemyBullets.push({ x:e.x, y:e.y, vx:Math.cos(a)*210, vy:Math.sin(a)*210,
-          dmg:e.damage*0.4, r:8, alive:true, life:2.8, color:'#00ff88' });
+          dmg:e.damage*adm*0.4, r:8, alive:true, life:2.8, color:'#00ff88' });
       }
       break;
     }
@@ -914,14 +960,14 @@ function doBossAbility(e, ability) {
       for (let i = 0; i < 16; i++) {
         const a = (i / 16) * TAU;
         enemyBullets.push({ x:e.x, y:e.y, vx:Math.cos(a)*200, vy:Math.sin(a)*200,
-          dmg:e.damage*0.45, r:9, alive:true, life:2.2, color:'#aaaaff' });
+          dmg:e.damage*adm*0.45, r:9, alive:true, life:2.2, color:'#aaaaff' });
       }
       break;
     }
     case 'stomp': {
       addShake(15);
       spawnParticles(e.x, e.y, '#555577', 35, 300, 1.0);
-      if (dist(player.x, player.y, e.x, e.y) < 150) damagePlayer(e.damage * 0.9);
+      if (dist(player.x, player.y, e.x, e.y) < 150) damagePlayer(e.damage * adm * 0.9);
       break;
     }
     case 'teleport': {
@@ -935,7 +981,7 @@ function doBossAbility(e, ability) {
       for (let i = 0; i < 22; i++) {
         const a = Math.atan2(player.y-e.y, player.x-e.x) + rand(-0.08, 0.08);
         enemyBullets.push({ x:e.x, y:e.y, vx:Math.cos(a)*320, vy:Math.sin(a)*320,
-          dmg:e.damage*0.35, r:6, alive:true, life:2.0, color:'#ff00ff' });
+          dmg:e.damage*adm*0.35, r:6, alive:true, life:2.0, color:'#ff00ff' });
       }
       addShake(6);
       break;
@@ -944,7 +990,7 @@ function doBossAbility(e, ability) {
       for (let i = 0; i < 24; i++) {
         const a = (i / 24) * TAU;
         enemyBullets.push({ x:e.x, y:e.y, vx:Math.cos(a)*150, vy:Math.sin(a)*150,
-          dmg:e.damage*0.4, r:9, alive:true, life:3, color:'#ff4400' });
+          dmg:e.damage*adm*0.4, r:9, alive:true, life:3, color:'#ff4400' });
       }
       addShake(8);
       break;
@@ -955,7 +1001,7 @@ function doBossAbility(e, ability) {
         const py = player.y + rand(-200, 200);
         particles.push({ type:'ring', x:px, y:py, r:0, maxR:70, life:0.5, maxLife:0.5, color:'#ff4400' });
         spawnParticles(px, py, '#ff8800', 14, 200, 0.6);
-        if (dist(player.x, player.y, px, py) < 80) damagePlayer(e.damage * 0.5);
+        if (dist(player.x, player.y, px, py) < 80) damagePlayer(e.damage * adm * 0.5);
       }
       break;
     }
@@ -977,7 +1023,7 @@ function doBossAbility(e, ability) {
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * TAU;
         enemyBullets.push({ x:e.x, y:e.y, vx:Math.cos(a)*180, vy:Math.sin(a)*180,
-          dmg:e.damage*0.3, r:8, alive:true, life:2.5, color:'#ffffff', web:true });
+          dmg:e.damage*adm*0.3, r:8, alive:true, life:2.5, color:'#ffffff', web:true });
       }
       break;
     }
@@ -1092,7 +1138,17 @@ function updateAmmoBar() {
   ui.weaponName.textContent = W().name + (player.shieldCharges > 0 ? ` 🛡${player.shieldCharges}` : '');
   ui.weaponIcon.textContent = W().icon;
 }
-function updateBossBar(e) { ui.bossBar.style.width = (e.hp / e.maxHp * 100) + '%'; }
+function updateBossBar(e) {
+  ui.bossBar.style.width = (e.hp / e.maxHp * 100) + '%';
+  if (!e.isBoss) return;
+  if (e.phase >= 3) {
+    ui.bossBar.style.background = 'linear-gradient(90deg,#550000,#ff0000,#ffff00)';
+  } else if (e.phase >= 2) {
+    ui.bossBar.style.background = 'linear-gradient(90deg,#884400,#ff8800,#ffcc00)';
+  } else {
+    ui.bossBar.style.background = '';
+  }
+}
 
 function updateDashBtn() {
   const btn = ui.shootBtn;
@@ -1360,6 +1416,31 @@ function drawEnemies() {
       ctx.font = `bold ${10/zoom.value}px Arial`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       ctx.fillText(e.name, e.x, by - 3);
+
+      // Windup telegraph: pulsing yellow ring
+      if (e.windupTimer > 0) {
+        const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 55);
+        ctx.save();
+        ctx.globalAlpha = 0.55 + 0.35 * pulse;
+        ctx.strokeStyle = '#ffff00';
+        ctx.lineWidth   = (3 + pulse * 3) / zoom.value;
+        ctx.shadowBlur  = 24; ctx.shadowColor = '#ffff00';
+        ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 12 + pulse * 7, 0, TAU); ctx.stroke();
+        ctx.restore();
+      }
+
+      // Phase transition: colored freeze ring
+      if (e.phaseTransition > 0) {
+        const frac = e.phaseTransition / 1.5;
+        const pc = e.phase >= 3 ? '#ff2244' : '#ff8800';
+        ctx.save();
+        ctx.globalAlpha = frac * 0.75;
+        ctx.strokeStyle = pc;
+        ctx.lineWidth   = 7 / zoom.value;
+        ctx.shadowBlur  = 30; ctx.shadowColor = pc;
+        ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 18, 0, TAU); ctx.stroke();
+        ctx.restore();
+      }
     }
   }
 }
@@ -1571,7 +1652,13 @@ function update(dt) {
     e.flash = Math.max(0, e.flash - dt);
     if (e.bouncer) e.bounceT += dt * 6;
 
-    if (e.charging) {
+    if (e.isBoss && e.phaseTransition > 0) {
+      // frozen during phase transition — emit phase-colored sparks
+      if (Math.random() < 0.55) {
+        const pc = e.phase >= 2 ? '#ff2244' : '#ff8800';
+        spawnParticles(e.x, e.y, pc, 2, 200, 0.35);
+      }
+    } else if (e.charging) {
       e.x += e.chargeVx * dt * 3.5; e.y += e.chargeVy * dt * 3.5;
       e.chargeDur -= dt;
       if (e.chargeDur <= 0) e.charging = false;
@@ -1610,21 +1697,51 @@ function update(dt) {
       }
     }
 
-    // Boss abilities
+    // Boss abilities + phase system
     if (e.isBoss) {
-      e.abilityTimer -= dt;
-      if (e.abilityTimer <= 0) {
-        e.abilityTimer = rand(2.5, 4.5);
-        const ab = e.abilities[randInt(0, e.abilities.length - 1)];
-        doBossAbility(e, ab);
-        if (e.alive) updateBossBar(e);
+      if (e.phaseTransition > 0) {
+        e.phaseTransition -= dt;
+        e.flash = 0.08;
+      } else {
+        // Phase threshold checks
+        const hpPct = e.hp / e.maxHp;
+        if (e.phase === 1 && hpPct <= BOSS_PHASES[0].hpPct) {
+          triggerBossPhaseTransition(e, 0);
+        } else if (e.phase === 2 && hpPct <= BOSS_PHASES[1].hpPct) {
+          triggerBossPhaseTransition(e, 1);
+        }
+
+        // Windup: telegraph + fire
+        if (e.windupTimer > 0) {
+          e.windupTimer -= dt;
+          if (Math.random() < 0.5)
+            particles.push({type:'ring', x:e.x, y:e.y, r:0, maxR:e.r*2.5,
+              life:0.22, maxLife:0.22, color:e.outline});
+          if (e.windupTimer <= 0) {
+            doBossAbility(e, e.windupAbility);
+            e.windupAbility = null;
+            const ph = e.phase;
+            const cdMin = ph >= 3 ? 0.8 : ph === 2 ? 1.6 : 2.5;
+            const cdMax = ph >= 3 ? 1.6 : ph === 2 ? 3.0 : 4.5;
+            e.abilityTimer = rand(cdMin, cdMax);
+            if (e.alive) updateBossBar(e);
+          }
+        } else {
+          e.abilityTimer -= dt;
+          if (e.abilityTimer <= 0) {
+            const ab = e.abilities[randInt(0, e.abilities.length - 1)];
+            e.windupTimer   = 0.55;
+            e.windupAbility = ab;
+            spawnParticles(e.x, e.y, e.outline, 10, 160, 0.5);
+          }
+        }
       }
     }
 
     // Melee contact
     const d2 = dist(player.x, player.y, e.x, e.y);
     if (d2 < player.r + e.r) {
-      damagePlayer(e.damage * dt * (e.ranged && !e.isBoss ? 0.3 : 1));
+      damagePlayer(e.damage * (e.isBoss ? (e.abilityDmgMult||1) : 1) * dt * (e.ranged && !e.isBoss ? 0.3 : 1));
     }
   }
   enemies = enemies.filter(e => e.alive);

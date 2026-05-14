@@ -66,8 +66,13 @@ canvas { display:block; position:fixed; inset:0; }
   width:min(440px,55vw); z-index:12; display:none; pointer-events:none;
 }
 #boss-bar-label { text-align:center; font-size:11px; color:#ff4400; font-weight:bold; margin-bottom:2px; text-shadow:0 0 6px #ff4400; }
-#boss-bar-outer { height:12px; background:#1a0000; border:1px solid #660000; border-radius:6px; overflow:hidden; }
-#boss-bar { height:100%; background:linear-gradient(90deg,#660000,#ff2200,#ffaa00); transition:width .12s; }
+#boss-bar-outer { position:relative; height:12px; background:#1a0000; border:1px solid #660000; border-radius:6px; overflow:visible; }
+#boss-bar { height:100%; background:linear-gradient(90deg,#660000,#ff2200,#ffaa00); border-radius:6px; transition:width .12s; }
+.boss-phase-tick {
+  position:absolute; top:-3px; bottom:-3px; width:2px;
+  background:rgba(255,255,255,0.75); pointer-events:none; z-index:2;
+  box-shadow:0 0 5px #fff;
+}
 
 /* ── MINIMAP ── */
 #minimap {
@@ -247,7 +252,11 @@ canvas { display:block; position:fixed; inset:0; }
   <!-- Boss bar -->
   <div id="boss-bar-wrap">
     <div id="boss-bar-label">BOSS</div>
-    <div id="boss-bar-outer"><div id="boss-bar"></div></div>
+    <div id="boss-bar-outer">
+      <div id="boss-bar"></div>
+      <div class="boss-phase-tick" style="left:60%"></div>
+      <div class="boss-phase-tick" style="left:25%"></div>
+    </div>
   </div>
 
   <!-- Minimap -->
