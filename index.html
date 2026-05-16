@@ -4,9 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#080810" />
+  <meta name="background-color" content="#080810" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Zombies" />
+  <meta name="application-name" content="Zombie Shooter" />
+  <meta name="description" content="Survive endless waves of zombies. Mobile-first top-down shooter." />
   <title>Zombie Shooter</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -90,6 +94,23 @@
   </div>
   <div id="fatal-error"></div>
   <script>
+    // Inject PWA links dynamically so Vite's HTML transform doesn't hash/move
+    // their hrefs — the manifest and icons must stay at their original paths
+    // (./manifest.webmanifest, ./icons/...) so the manifest's relative icon
+    // paths resolve correctly relative to the site root.
+    (function () {
+      function addLink(rel, href, attrs) {
+        var l = document.createElement('link');
+        l.rel = rel; l.href = href;
+        if (attrs) for (var k in attrs) l.setAttribute(k, attrs[k]);
+        document.head.appendChild(l);
+      }
+      addLink('manifest',         './manifest.webmanifest');
+      addLink('icon',             './icons/favicon-32.png',     { type: 'image/png', sizes: '32x32' });
+      addLink('icon',             './icons/icon-192.png',       { type: 'image/png', sizes: '192x192' });
+      addLink('apple-touch-icon', './icons/apple-touch-icon.png');
+    })();
+
     function showFatal(msg) {
       const el = document.getElementById('fatal-error');
       if (el) { el.style.display = 'block'; el.textContent = msg; }
@@ -119,6 +140,21 @@
       window.hideBootStatus();
       clearInterval(_bootPoll);
     }, 6000);
+
+    // Register service worker for PWA installability + offline cache
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('./sw.js').catch(function (err) {
+          console.warn('SW registration failed:', err);
+        });
+      });
+    }
+
+    // Capture beforeinstallprompt so we can offer a custom install UX later
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      window._installPrompt = e;
+    });
   </script>
   <script type="module" src="/src/main.ts"></script>
 </body>
