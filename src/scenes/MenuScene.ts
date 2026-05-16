@@ -6,6 +6,10 @@ export class MenuScene extends Phaser.Scene {
   constructor() { super('Menu'); }
 
   create(): void {
+    // Backup: hide the HTML boot-status if it's still showing
+    const _w = window as unknown as { hideBootStatus?: () => void };
+    _w.hideBootStatus?.();
+
     const save   = new SaveSystem();
     const hiScore = save.getHighScore();
 

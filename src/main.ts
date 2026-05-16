@@ -44,12 +44,6 @@ const config: Phaser.Types.Core.GameConfig = {
 
 const game = new Phaser.Game(config);
 
-// Hide boot status once any scene is rendering
-game.events.once(Phaser.Core.Events.READY, () => {
-  const el = document.getElementById('boot-status');
-  if (el) el.style.display = 'none';
-});
-
 // Force Phaser to recompute scale on orientation/visibility changes — mobile
 // browsers sometimes change viewport size without firing window.resize.
 const refreshScale = (): void => {

@@ -90,7 +90,6 @@
   </div>
   <div id="fatal-error"></div>
   <script>
-    // Surface any unhandled error visibly so we can diagnose mobile-only issues
     function showFatal(msg) {
       const el = document.getElementById('fatal-error');
       if (el) { el.style.display = 'block'; el.textContent = msg; }
@@ -101,6 +100,25 @@
     window.addEventListener('unhandledrejection', (e) => {
       showFatal('Promise rejection: ' + (e.reason && e.reason.stack ? e.reason.stack : e.reason));
     });
+
+    // Reliably hide loading text once Phaser canvas appears in the DOM.
+    // Module scripts defer; Phaser READY can fire before any listener attaches,
+    // so we don't rely on Phaser events — we poll for the canvas instead.
+    window.hideBootStatus = function () {
+      const el = document.getElementById('boot-status');
+      if (el) el.style.display = 'none';
+    };
+    var _bootPoll = setInterval(function () {
+      if (document.querySelector('#game canvas')) {
+        window.hideBootStatus();
+        clearInterval(_bootPoll);
+      }
+    }, 100);
+    // Hard fallback — never let the loading text persist past 6s
+    setTimeout(function () {
+      window.hideBootStatus();
+      clearInterval(_bootPoll);
+    }, 6000);
   </script>
   <script type="module" src="/src/main.ts"></script>
 </body>
