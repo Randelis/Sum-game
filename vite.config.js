@@ -7,15 +7,9 @@ export default defineConfig({
     assetsDir: 'assets',
     rollupOptions: {
       output: {
-        manualChunks: {
-          phaser: ['phaser'],
-          xstate: ['xstate'],
-        },
+        manualChunks: { phaser: ['phaser'] },
       },
     },
   },
-  server: {
-    host: true,
-    port: 8080,
-  },
+  server: { host: true, port: 8080 },
 });
