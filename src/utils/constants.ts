@@ -9,14 +9,14 @@ export const WORLD_H = 6400;
 export const PLAYER = {
   RADIUS:        16,
   MAX_HP:        100,
-  BASE_SPEED:    180,
+  BASE_SPEED:    200,
   DASH_MULT:     4.5,
   DASH_MS:       220,
-  INVULN_MS:     500,
-  DASH_COOLDOWN: 3.5,
+  INVULN_MS:     600,
+  DASH_COOLDOWN: 2.0,
   FLASKS:        3,
   FLASK_HEAL:    50,
-  FLASK_MS:      800,
+  FLASK_MS:      400,
 } as const;
 
 export const MOBILE_LIMITS = {
@@ -30,8 +30,8 @@ export const BOSS_WAVE = 5;
 export const XP_BASE   = 100;
 export const XP_SCALE  = 1.22;
 
-export const CAMERA_ZOOM = 0.72;
-export const CAMERA_LERP = 0.08;
+export const CAMERA_ZOOM = 0.85;
+export const CAMERA_LERP = 0.10;
 
 export const DEPTH = {
   BG:      0,

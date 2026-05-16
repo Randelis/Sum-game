@@ -3,15 +3,14 @@ import { UpgradeDef } from '../data/upgrades';
 import { GAME_W, GAME_H, DEPTH } from '../utils/constants';
 
 export class UpgradeMenu {
-  scene:    Phaser.Scene;
-  isOpen:   boolean = false;
+  scene:  Phaser.Scene;
+  isOpen: boolean = false;
 
-  private _overlay!:    Phaser.GameObjects.Rectangle;
-  private _titleText!:  Phaser.GameObjects.Text;
-  private _cards:       Phaser.GameObjects.Container[] = [];
-  private _container!:  Phaser.GameObjects.Container;
-
-  private _onPick: (def: UpgradeDef) => void;
+  private _overlay!:   Phaser.GameObjects.Rectangle;
+  private _title!:     Phaser.GameObjects.Text;
+  private _cards:      Phaser.GameObjects.Container[] = [];
+  private _container!: Phaser.GameObjects.Container;
+  private _onPick:     (def: UpgradeDef) => void;
 
   constructor(scene: Phaser.Scene, onPick: (def: UpgradeDef) => void) {
     this.scene   = scene;
@@ -24,9 +23,16 @@ export class UpgradeMenu {
     this._clearCards();
     this._container.setVisible(true);
 
-    const startX = GAME_W / 2 - (choices.length - 1) * 160;
-    for (let i = 0; i < choices.length; i++) {
-      const card = this._makeCard(choices[i], startX + i * 320, GAME_H / 2);
+    const n      = choices.length;
+    const cardW  = 260;
+    const cardH  = 200;
+    const gap    = 28;
+    const totalW = n * cardW + (n - 1) * gap;
+    const startX = (GAME_W - totalW) / 2 + cardW / 2;
+    const cy     = GAME_H / 2 + 20;
+
+    for (let i = 0; i < n; i++) {
+      const card = this._makeCard(choices[i], startX + i * (cardW + gap), cy, cardW, cardH);
       this._cards.push(card);
       this._container.add(card);
     }
@@ -39,33 +45,36 @@ export class UpgradeMenu {
   }
 
   private _build(): void {
-    this._overlay = this.scene.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x000000, 0.65)
+    this._overlay = this.scene.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x000000, 0.78)
       .setScrollFactor(0).setDepth(DEPTH.OVERLAY);
-
-    this._titleText = this.scene.add.text(GAME_W / 2, GAME_H / 2 - 160, 'LEVEL UP! Choose an upgrade', {
-      fontSize: '28px', color: '#ffcc00', stroke: '#000', strokeThickness: 4,
+    this._title = this.scene.add.text(GAME_W / 2, GAME_H / 2 - 140, '⭐ LEVEL UP — choose an upgrade', {
+      fontSize: '28px', color: '#ffcc00', fontStyle: 'bold',
+      stroke: '#000', strokeThickness: 4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.OVERLAY + 1);
 
-    this._container = this.scene.add.container(0, 0, [this._overlay, this._titleText])
+    this._container = this.scene.add.container(0, 0, [this._overlay, this._title])
       .setScrollFactor(0).setDepth(DEPTH.OVERLAY).setVisible(false);
   }
 
-  private _makeCard(def: UpgradeDef, x: number, y: number): Phaser.GameObjects.Container {
-    const bg    = this.scene.add.rectangle(x, y, 280, 180, 0x223344, 0.95).setInteractive();
-    const border= this.scene.add.rectangle(x, y, 280, 180).setStrokeStyle(2, 0x4488cc);
-    const name  = this.scene.add.text(x, y - 50, def.name, { fontSize: '22px', color: '#ffffff' }).setOrigin(0.5);
-    const desc  = this.scene.add.text(x, y + 10, def.description, {
-      fontSize: '16px', color: '#aaccff', wordWrap: { width: 240 },
+  private _makeCard(def: UpgradeDef, x: number, y: number, w: number, h: number): Phaser.GameObjects.Container {
+    const bg     = this.scene.add.rectangle(x, y, w, h, 0x1a2c3e, 0.98)
+      .setStrokeStyle(3, 0x4488cc).setInteractive({ useHandCursor: true });
+    const name   = this.scene.add.text(x, y - h / 2 + 36, def.name, {
+      fontSize: '22px', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    const desc   = this.scene.add.text(x, y + 10, def.description, {
+      fontSize: '15px', color: '#cce4ff',
+      wordWrap: { width: w - 32 }, align: 'center',
+    }).setOrigin(0.5);
+    const cta    = this.scene.add.text(x, y + h / 2 - 28, 'TAP TO PICK', {
+      fontSize: '13px', color: '#88ccff', fontStyle: 'bold',
     }).setOrigin(0.5);
 
-    bg.on('pointerover', () => bg.setFillStyle(0x334455));
-    bg.on('pointerout',  () => bg.setFillStyle(0x223344));
-    bg.on('pointerdown', () => {
-      this._onPick(def);
-      this.hide();
-    });
+    bg.on('pointerover', () => bg.setStrokeStyle(3, 0x88ccff));
+    bg.on('pointerout',  () => bg.setStrokeStyle(3, 0x4488cc));
+    bg.on('pointerdown', () => { this._onPick(def); this.hide(); });
 
-    return this.scene.add.container(0, 0, [bg, border, name, desc]).setScrollFactor(0).setDepth(DEPTH.OVERLAY + 2);
+    return this.scene.add.container(0, 0, [bg, name, desc, cta]).setScrollFactor(0).setDepth(DEPTH.OVERLAY + 2);
   }
 
   private _clearCards(): void {

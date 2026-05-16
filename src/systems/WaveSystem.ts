@@ -18,9 +18,9 @@ export class WaveSystem {
   bossActive:    boolean = false;
 
   private _cb:             WaveSystemCallbacks;
-  private _waveTimer:      number  = 0;
+  private _waveTimer:      number  = 0;     // seconds
   private _betweenWaves:   boolean = false;
-  private _betweenMs:      number  = 4000;
+  private _betweenSec:     number  = 3;     // 3s rest between waves
   private _eventCooldown:  number  = 0;
   private _started:        boolean = false;
 
@@ -41,7 +41,7 @@ export class WaveSystem {
     this.enemiesLeft = liveEnemyCount;
 
     if (this._betweenWaves) {
-      this._waveTimer -= dt * 1000;
+      this._waveTimer -= dt;
       if (this._waveTimer <= 0) {
         this._betweenWaves = false;
         this._beginWave();
@@ -53,7 +53,7 @@ export class WaveSystem {
       this._cb.onWaveComplete(this.wave);
       this.wave++;
       this._betweenWaves = true;
-      this._waveTimer    = this._betweenMs;
+      this._waveTimer    = this._betweenSec;
       return;
     }
 
@@ -80,7 +80,7 @@ export class WaveSystem {
   notifyBossDefeated(): void {
     this.bossActive    = false;
     this._betweenWaves = true;
-    this._waveTimer    = this._betweenMs;
+    this._waveTimer    = this._betweenSec;
     this.wave++;
   }
 

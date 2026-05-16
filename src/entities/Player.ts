@@ -23,12 +23,12 @@ export class Player {
   isReloading:  boolean = false;
   isDead:       boolean = false;
 
-  private _keyW!: Phaser.Input.Keyboard.Key;
-  private _keyA!: Phaser.Input.Keyboard.Key;
-  private _keyS!: Phaser.Input.Keyboard.Key;
-  private _keyD!: Phaser.Input.Keyboard.Key;
-  private _keySpace!: Phaser.Input.Keyboard.Key;
-  private _keyH!: Phaser.Input.Keyboard.Key;
+  private _keyW?: Phaser.Input.Keyboard.Key;
+  private _keyA?: Phaser.Input.Keyboard.Key;
+  private _keyS?: Phaser.Input.Keyboard.Key;
+  private _keyD?: Phaser.Input.Keyboard.Key;
+  private _keySpace?: Phaser.Input.Keyboard.Key;
+  private _keyH?: Phaser.Input.Keyboard.Key;
 
   private _dashTimer:    number = 0;
   private _dashCd:       number = 0;
@@ -60,13 +60,20 @@ export class Player {
     body.setCircle(PLAYER.RADIUS);
     body.setCollideWorldBounds(true);
 
-    const kb = scene.input.keyboard!;
-    this._keyW     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.W);
-    this._keyA     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.A);
-    this._keyS     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.S);
-    this._keyD     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.D);
-    this._keySpace = kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    this._keyH     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.H);
+    const kb = scene.input.keyboard;
+    if (kb) {
+      this._keyW     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+      this._keyA     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+      this._keyS     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.S);
+      this._keyD     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+      this._keySpace = kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+      this._keyH     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.H);
+    }
+  }
+
+  private _keyDown(k?: Phaser.Input.Keyboard.Key): boolean { return !!k && k.isDown; }
+  private _keyJustDown(k?: Phaser.Input.Keyboard.Key): boolean {
+    return !!k && Phaser.Input.Keyboard.JustDown(k);
   }
 
   // Called by MobileInputSystem each frame
@@ -148,10 +155,10 @@ export class Player {
     let mx = this._mobileMove.x;
     let my = this._mobileMove.y;
 
-    if (this._keyA.isDown) mx -= 1;
-    if (this._keyD.isDown) mx += 1;
-    if (this._keyW.isDown) my -= 1;
-    if (this._keyS.isDown) my += 1;
+    if (this._keyDown(this._keyA)) mx -= 1;
+    if (this._keyDown(this._keyD)) mx += 1;
+    if (this._keyDown(this._keyW)) my -= 1;
+    if (this._keyDown(this._keyS)) my += 1;
 
     const len = Math.sqrt(mx * mx + my * my) || 1;
     const spd = PLAYER.BASE_SPEED * this.stats.speedMult * (mx !== 0 || my !== 0 ? 1 : 0);
@@ -165,7 +172,7 @@ export class Player {
   }
 
   private _handleDash(_dt: number): void {
-    const wantDash = this._pendingDash || Phaser.Input.Keyboard.JustDown(this._keySpace);
+    const wantDash = this._pendingDash || this._keyJustDown(this._keySpace);
     if (!wantDash) return;
     if (this.isDashing || this._dashCd > 0) return;
 
@@ -189,7 +196,7 @@ export class Player {
 
   private _handleHeal(_dt: number): void {
     if (this._healTimer > 0) return;
-    const wantHeal = this._pendingHeal || Phaser.Input.Keyboard.JustDown(this._keyH);
+    const wantHeal = this._pendingHeal || this._keyJustDown(this._keyH);
     if (!wantHeal) return;
     if (this.flasks <= 0) return;
 
@@ -240,9 +247,8 @@ export class Player {
   }
 
   private _handleReload(dt: number): void {
-    void dt;
     if (!this.isReloading) return;
-    this._reloadTimer -= this.scene.game.loop.delta / 1000;
+    this._reloadTimer -= dt;
     if (this._reloadTimer <= 0) {
       this.ammo        = this.weapon.ammoMax;
       this.isReloading = false;

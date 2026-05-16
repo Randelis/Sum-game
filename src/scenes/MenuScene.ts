@@ -6,92 +6,79 @@ interface InstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
-
 interface WindowWithPwa extends Window {
   hideBootStatus?: () => void;
   _installPrompt?: InstallPromptEvent;
 }
 
 export class MenuScene extends Phaser.Scene {
+  private _installBtn: Phaser.GameObjects.GameObject[] = [];
+
   constructor() { super('Menu'); }
 
   create(): void {
     const w = window as unknown as WindowWithPwa;
     w.hideBootStatus?.();
 
-    const save   = new SaveSystem();
+    const save    = new SaveSystem();
     const hiScore = save.getHighScore();
 
-    // Background
+    // Dark gradient background
     this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x0a0f0a);
 
+    // Decorative top stripe
+    const stripe = this.add.graphics();
+    stripe.fillStyle(0x111414);
+    stripe.fillRect(0, 0, GAME_W, 4);
+    stripe.fillStyle(0x331111);
+    stripe.fillRect(0, GAME_H - 4, GAME_W, 4);
+
     // Title
-    this.add.text(GAME_W / 2, 150, '☠ ZOMBIE SHOOTER', {
-      fontSize: '52px', color: '#ff4444',
-      stroke: '#000', strokeThickness: 6,
+    this.add.text(GAME_W / 2, 140, '☠ ZOMBIE SHOOTER', {
+      fontSize: '60px', color: '#ff4444', fontStyle: 'bold',
+      stroke: '#000', strokeThickness: 8,
     }).setOrigin(0.5);
 
-    this.add.text(GAME_W / 2, 215, 'Survive the endless horde', {
-      fontSize: '22px', color: '#aaaaaa',
+    this.add.text(GAME_W / 2, 200, 'Survive the endless horde', {
+      fontSize: '22px', color: '#888888',
     }).setOrigin(0.5);
 
     if (hiScore > 0) {
-      this.add.text(GAME_W / 2, 270, `Best score: ${hiScore}`, {
-        fontSize: '20px', color: '#ffcc00',
+      this.add.text(GAME_W / 2, 250, `🏆 Best  ${hiScore.toLocaleString()}`, {
+        fontSize: '22px', color: '#ffcc00', fontStyle: 'bold',
       }).setOrigin(0.5);
     }
 
-    // PLAY button
-    const btnBg = this.add.rectangle(GAME_W / 2, 370, 240, 70, 0x226622)
-      .setInteractive({ useHandCursor: true });
-    const btnText = this.add.text(GAME_W / 2, 370, 'PLAY', {
-      fontSize: '34px', color: '#ffffff', stroke: '#000', strokeThickness: 4,
-    }).setOrigin(0.5);
+    // PLAY button — large, easy touch target
+    this._addButton(GAME_W / 2, 380, 280, 80, '▶ PLAY', '#ffffff', 0x226622, 0x33aa33, 30, () => this._startGame());
 
-    btnBg.on('pointerover', () => { btnBg.setFillStyle(0x33aa33); btnText.setScale(1.06); });
-    btnBg.on('pointerout',  () => { btnBg.setFillStyle(0x226622); btnText.setScale(1); });
-    btnBg.on('pointerdown', () => { this._startGame(); });
-
-    // INSTALL APP button — shown only when PWA install prompt is available
+    // INSTALL APP button — appears only when PWA install prompt is available
     if (w._installPrompt) this._addInstallButton();
+    const onPrompt = () => this._addInstallButton();
+    window.addEventListener('beforeinstallprompt', onPrompt, { once: true });
+    this.events.once('shutdown', () => window.removeEventListener('beforeinstallprompt', onPrompt));
 
-    // Listen for late-arriving install prompt
-    window.addEventListener('beforeinstallprompt', () => this._addInstallButton(), { once: true });
-
-    // Controls hint
-    this.add.text(GAME_W / 2, 555, 'Joystick to move  •  Auto-aim & shoot  •  💨 dash  •  🧪 heal', {
-      fontSize: '15px', color: '#666666',
+    // Hint
+    this.add.text(GAME_W / 2, GAME_H - 50, 'Touch joystick to move • Tap 💨 to dash • Tap 🧪 to heal • 🔄 swap weapon', {
+      fontSize: '15px', color: '#555555',
     }).setOrigin(0.5);
 
-    this.add.text(GAME_W / 2, 585, 'Survive to wave 5 to face the BOSS!', {
-      fontSize: '16px', color: '#aa4444',
-    }).setOrigin(0.5);
-
-    // Keyboard shortcuts (desktop)
+    // Desktop keyboard shortcut
     if (this.input.keyboard) {
       this.input.keyboard.once('keydown-ENTER', () => this._startGame());
       this.input.keyboard.once('keydown-SPACE', () => this._startGame());
     }
   }
 
-  private _installBtn: Phaser.GameObjects.GameObject[] = [];
-
   private _addInstallButton(): void {
     if (this._installBtn.length > 0) return;
-    const bg   = this.add.rectangle(GAME_W / 2, 460, 200, 50, 0x224477)
-      .setInteractive({ useHandCursor: true });
-    const text = this.add.text(GAME_W / 2, 460, '📲 Install App', {
-      fontSize: '20px', color: '#cce4ff',
-    }).setOrigin(0.5);
-
-    bg.on('pointerover', () => bg.setFillStyle(0x3366aa));
-    bg.on('pointerout',  () => bg.setFillStyle(0x224477));
-    bg.on('pointerdown', () => this._promptInstall(bg, text));
-
-    this._installBtn = [bg, text];
+    const els = this._addButton(GAME_W / 2, 490, 220, 56, '📲 Install App', '#cce4ff', 0x224477, 0x3366aa, 20, () => {
+      this._promptInstall();
+    });
+    this._installBtn = els;
   }
 
-  private async _promptInstall(bg: Phaser.GameObjects.Rectangle, text: Phaser.GameObjects.Text): Promise<void> {
+  private async _promptInstall(): Promise<void> {
     const w = window as unknown as WindowWithPwa;
     const evt = w._installPrompt;
     if (!evt) return;
@@ -99,25 +86,48 @@ export class MenuScene extends Phaser.Scene {
       await evt.prompt();
       const { outcome } = await evt.userChoice;
       if (outcome === 'accepted') {
-        bg.destroy();
-        text.destroy();
+        this._installBtn.forEach(e => e.destroy());
         this._installBtn = [];
       }
       w._installPrompt = undefined;
-    } catch { /* user dismissed or browser refused */ }
+    } catch { /* dismissed */ }
+  }
+
+  private _addButton(
+    cx: number, cy: number, w: number, h: number,
+    label: string, textColor: string,
+    fill: number, fillHover: number, fontSize: number,
+    onTap: () => void,
+  ): Phaser.GameObjects.GameObject[] {
+    const bg   = this.add.rectangle(cx, cy, w, h, fill)
+      .setStrokeStyle(3, 0xffffff, 0.15)
+      .setInteractive({ useHandCursor: true });
+    const txt  = this.add.text(cx, cy, label, {
+      fontSize: `${fontSize}px`, color: textColor, fontStyle: 'bold',
+      stroke: '#000', strokeThickness: 4,
+    }).setOrigin(0.5);
+
+    bg.on('pointerover', () => { bg.setFillStyle(fillHover); txt.setScale(1.05); });
+    bg.on('pointerout',  () => { bg.setFillStyle(fill);      txt.setScale(1); });
+    bg.on('pointerdown', () => {
+      bg.setScale(0.96);
+      this.tweens.add({ targets: bg, scale: 1, duration: 120 });
+      onTap();
+    });
+    return [bg, txt];
   }
 
   private _startGame(): void {
-    // Best-effort fullscreen + landscape lock; requires user gesture (we're in pointerdown)
     this._tryFullscreenLandscape();
     this.scene.start('Game');
   }
 
   private _tryFullscreenLandscape(): void {
-    const el = document.documentElement;
-    const req = (el.requestFullscreen ?? (el as unknown as { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen);
-    try { req?.call(el); } catch { /* ignore */ }
-
+    const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> };
+    try {
+      if (el.requestFullscreen)        el.requestFullscreen().catch(() => { /* ignore */ });
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } catch { /* ignore */ }
     const orient = (screen as unknown as { orientation?: { lock?: (o: string) => Promise<void> } }).orientation;
     try { orient?.lock?.('landscape').catch(() => { /* ignore */ }); } catch { /* ignore */ }
   }

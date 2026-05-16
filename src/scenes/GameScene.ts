@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_W, GAME_H, WORLD_W, WORLD_H, CAMERA_ZOOM, CAMERA_LERP, DEPTH, MOBILE_LIMITS } from '../utils/constants';
+import { WORLD_W, WORLD_H, CAMERA_ZOOM, CAMERA_LERP, DEPTH, MOBILE_LIMITS } from '../utils/constants';
 import { Player }            from '../entities/Player';
 import { Enemy }             from '../entities/Enemy';
 import { Boss }              from '../entities/Boss';
@@ -18,7 +18,6 @@ import { WeaponPicker }      from '../ui/WeaponPicker';
 import { pickEnemyType, ENEMY_TYPES } from '../data/enemies';
 import { getBossForWave }             from '../data/bosses';
 import { unlockedWeapons }   from '../data/weapons';
-import { dist }              from '../utils/math';
 import { randRange }         from '../utils/math';
 
 export class GameScene extends Phaser.Scene {
@@ -50,9 +49,6 @@ export class GameScene extends Phaser.Scene {
   private _upgradeMenu!:  UpgradeMenu;
   private _weaponPicker!: WeaponPicker;
 
-  // Minimap
-  private _minimap!:      Phaser.Cameras.Scene2D.Camera;
-
   // Game state
   private _paused:        boolean = false;
   private _gameOver:      boolean = false;
@@ -69,7 +65,6 @@ export class GameScene extends Phaser.Scene {
     this._buildPlayer();
     this._buildSystems();
     this._buildCamera();
-    this._buildMinimap();
     this._buildUI();
     this._setupExplosionHandler();
 
@@ -80,7 +75,7 @@ export class GameScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (this._paused || this._gameOver) return;
 
-    const dt = delta / 1000;
+    const dt = Math.min(delta / 1000, 0.05); // clamp big deltas (tab switch / lag)
 
     // Mobile input
     this._mobileInput.update();
@@ -89,62 +84,68 @@ export class GameScene extends Phaser.Scene {
     if (this._mobileInput.consumeHeal())         this.player.triggerHeal();
     if (this._mobileInput.consumeWeaponSwitch()) this._openWeaponPicker();
 
-    // Find nearest enemy for auto-aim
+    // Compact enemies array — single pass that removes dead entries and finds
+    // the nearest live target. Avoids the per-frame filter/splice churn.
+    const px = this.player.x;
+    const py = this.player.y;
     let nearestX: number | null = null;
     let nearestY: number | null = null;
-    let nearestD = Infinity;
+    let nearestD2 = Infinity;
 
-    const allTargets: Array<{ x: number; y: number }> = [...this.enemies.filter(e => !e.isDead)];
-    if (this.boss && !this.boss.isDead) allTargets.push(this.boss);
+    let w = 0;
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      if (e.isDead) continue;
+      this.enemies[w++] = e;
 
-    for (const t of allTargets) {
-      const d = dist(this.player.x, this.player.y, t.x, t.y);
-      if (d < nearestD) { nearestD = d; nearestX = t.x; nearestY = t.y; }
+      e.update(dt, px, py, this._enemyBullets, this.enemies);
+
+      const dx = e.x - px, dy = e.y - py;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < nearestD2) { nearestD2 = d2; nearestX = e.x; nearestY = e.y; }
+    }
+    this.enemies.length = w;
+
+    // Boss is also a target
+    if (this.boss && !this.boss.isDead) {
+      const dx = this.boss.x - px, dy = this.boss.y - py;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < nearestD2) { nearestX = this.boss.x; nearestY = this.boss.y; }
+      this.boss.update(dt, px, py, this._enemyBullets);
     }
 
     // Update player
     this.player.update(dt, nearestX, nearestY, this._playerBullets);
 
-    // Update enemies
-    for (const e of this.enemies) {
-      if (!e.isDead) {
-        e.update(dt, this.player.x, this.player.y, this._enemyBullets, this.enemies);
-      }
+    // XP orbs — compact in place too
+    let ow = 0;
+    for (let i = 0; i < this.xpOrbs.length; i++) {
+      const orb = this.xpOrbs[i];
+      if (!orb.sprite.active) continue;
+      this.xpOrbs[ow++] = orb;
+      orb.update(px, py, this.player.stats.magnetRadius);
     }
+    this.xpOrbs.length = ow;
 
-    // Update boss
-    if (this.boss && !this.boss.isDead) {
-      this.boss.update(dt, this.player.x, this.player.y, this._enemyBullets);
-    }
-
-    // Update XP orbs
-    for (const orb of this.xpOrbs) {
-      orb.update(this.player.x, this.player.y, this.player.stats.magnetRadius);
-    }
-
-    // Update bullets
-    this._playerBullets.getChildren().forEach(b => {
-      const bullet = b as Bullet;
-      if (bullet.active) bullet.update(0, delta);
-    });
-    this._enemyBullets.getChildren().forEach(b => {
-      const bullet = b as Bullet;
-      if (bullet.active) bullet.update(0, delta);
-    });
+    // Bullets — update only active ones
+    this._updateBulletGroup(this._playerBullets, delta);
+    this._updateBulletGroup(this._enemyBullets,  delta);
 
     // Wave system
-    const liveCount = this.enemies.filter(e => !e.isDead).length;
-    this._waveSystem.update(dt, liveCount);
+    this._waveSystem.update(dt, this.enemies.length);
 
     // HUD
     this._hud.update(this.player, this._currentWave, this.boss);
 
-    // Minimap dots
-    this._updateMinimap();
-
     // Check game over
-    if (this.player.isDead && !this._gameOver) {
-      this._triggerGameOver();
+    if (this.player.isDead && !this._gameOver) this._triggerGameOver();
+  }
+
+  private _updateBulletGroup(group: Phaser.Physics.Arcade.Group, delta: number): void {
+    const children = group.getChildren();
+    for (let i = 0; i < children.length; i++) {
+      const b = children[i] as Bullet;
+      if (b.active) b.update(0, delta);
     }
   }
 
@@ -153,19 +154,14 @@ export class GameScene extends Phaser.Scene {
   private _buildWorld(): void {
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
 
-    // Tiled background
-    const cols = Math.ceil(WORLD_W / 128) + 1;
-    const rows = Math.ceil(WORLD_H / 128) + 1;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        this.add.image(c * 128, r * 128, 'ground').setOrigin(0).setDepth(DEPTH.BG);
-      }
-    }
+    // Single TileSprite instead of thousands of image sprites — much cheaper.
+    this.add.tileSprite(0, 0, WORLD_W, WORLD_H, 'ground')
+      .setOrigin(0).setDepth(DEPTH.BG);
 
     // World border
     const g = this.add.graphics().setDepth(DEPTH.BG + 1);
-    g.lineStyle(4, 0xff4444);
-    g.strokeRect(2, 2, WORLD_W - 4, WORLD_H - 4);
+    g.lineStyle(6, 0xaa3333, 0.8);
+    g.strokeRect(0, 0, WORLD_W, WORLD_H);
   }
 
   // ─── Groups ─────────────────────────────────────────────────────────────────
@@ -191,9 +187,11 @@ export class GameScene extends Phaser.Scene {
 
   private _buildPlayer(): void {
     this.player = new Player(this, WORLD_W / 2, WORLD_H / 2);
-    // Pre-populate bullet pool
-    this._playerBullets.createMultiple({ key: 'bullet', quantity: 40, active: false, visible: false });
-    this._enemyBullets.createMultiple({ key: 'bullet', quantity: 20, active: false, visible: false });
+    // Pre-populate bullet pools — must pass classType: Bullet so the group
+    // returns actual Bullet instances (with fire(), kill(), damage, pierce…)
+    // rather than plain Phaser.Physics.Arcade.Image.
+    this._playerBullets.createMultiple({ classType: Bullet, key: 'bullet', quantity: 40, active: false, visible: false });
+    this._enemyBullets.createMultiple({ classType: Bullet, key: 'bullet', quantity: 20, active: false, visible: false });
   }
 
   // ─── Systems ────────────────────────────────────────────────────────────────
@@ -248,27 +246,6 @@ export class GameScene extends Phaser.Scene {
       .startFollow(this.player.sprite, true, CAMERA_LERP, CAMERA_LERP);
   }
 
-  // ─── Minimap ────────────────────────────────────────────────────────────────
-
-  private _buildMinimap(): void {
-    const mw = 180;
-    const mh = 120;
-    const mx = GAME_W - mw - 10;
-    const my = 90;
-
-    this._minimap = this.cameras.add(mx, my, mw, mh)
-      .setZoom(mw / WORLD_W)
-      .setBounds(0, 0, WORLD_W, WORLD_H)
-      .setBackgroundColor(0x111111);
-    this._minimap.setAlpha(0.7);
-    // Minimap follows player but via manual scroll in update
-    this._minimap.startFollow(this.player.sprite);
-    this._minimap.setZoom(mw / WORLD_W);
-  }
-
-  private _updateMinimap(): void {
-    // Minimap rendering is handled by camera bounds; dots are separate graphics
-  }
 
   // ─── UI ─────────────────────────────────────────────────────────────────────
 
@@ -285,21 +262,18 @@ export class GameScene extends Phaser.Scene {
       this._paused = false;
     });
 
-    // Pause key
-    this.input.keyboard!.on('keydown-ESC', () => {
-      if (this._upgradeMenu.isOpen || this._weaponPicker.isOpen) {
-        this._upgradeMenu.hide();
-        this._weaponPicker.hide();
-        this._paused = false;
-      } else {
-        this._paused = !this._paused;
-      }
-    });
-
-    // Weapon cycle key
-    this.input.keyboard!.on('keydown-Q', () => {
-      this._openWeaponPicker();
-    });
+    if (this.input.keyboard) {
+      this.input.keyboard.on('keydown-ESC', () => {
+        if (this._upgradeMenu.isOpen || this._weaponPicker.isOpen) {
+          this._upgradeMenu.hide();
+          this._weaponPicker.hide();
+          this._paused = false;
+        } else {
+          this._paused = !this._paused;
+        }
+      });
+      this.input.keyboard.on('keydown-Q', () => { this._openWeaponPicker(); });
+    }
   }
 
   private _openWeaponPicker(): void {
@@ -360,20 +334,28 @@ export class GameScene extends Phaser.Scene {
   }
 
   private _spawnPos(): { x: number; y: number } {
-    const margin = 200;
+    // Pick a random angle and spawn just outside the visible area so the
+    // enemy walks into view rather than appearing mid-screen.
+    const margin = 80;
     const px     = this.player.x;
     const py     = this.player.y;
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const x = randRange(margin, WORLD_W - margin);
-      const y = randRange(margin, WORLD_H - margin);
-      const d = dist(px, py, x, y);
-      if (d > 350 && d < 900) return { x, y };
+    // Visible half-extents at zoom 0.72: ~890×500 — spawn 250 px beyond
+    const minR = 750;
+    const maxR = 1100;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = randRange(minR, maxR);
+      const x = px + Math.cos(a) * r;
+      const y = py + Math.sin(a) * r;
+      if (x > margin && x < WORLD_W - margin && y > margin && y < WORLD_H - margin) {
+        return { x, y };
+      }
     }
-    // Fallback — spawn off-screen to the right
-    const angle = Math.random() * Math.PI * 2;
+    // Player must be near a world edge — clamp into bounds
+    const a = Math.random() * Math.PI * 2;
     return {
-      x: Math.max(margin, Math.min(WORLD_W - margin, px + Math.cos(angle) * 600)),
-      y: Math.max(margin, Math.min(WORLD_H - margin, py + Math.sin(angle) * 600)),
+      x: Phaser.Math.Clamp(px + Math.cos(a) * minR, margin, WORLD_W - margin),
+      y: Phaser.Math.Clamp(py + Math.sin(a) * minR, margin, WORLD_H - margin),
     };
   }
 
@@ -392,13 +374,10 @@ export class GameScene extends Phaser.Scene {
     if (Math.random() < 0.04) this._dropPickup(x, y, 'flask');
     if (Math.random() < 0.06) this._dropPickup(x, y, 'ammo');
 
-    // Remove from arrays after a tick (can't splice mid-loop)
-    this.time.delayedCall(50, () => {
-      enemy.destroy();
-      const idx = this.enemies.indexOf(enemy);
-      if (idx !== -1) this.enemies.splice(idx, 1);
-      this._enemySprites.remove(enemy.sprite, true, true);
-    });
+    // Mark dead and destroy sprite immediately; the update loop compacts
+    // this.enemies on the next tick.
+    enemy.isDead = true;
+    this._enemySprites.remove(enemy.sprite, true, true);
   }
 
   private _handleBossDeath(boss: Boss): void {

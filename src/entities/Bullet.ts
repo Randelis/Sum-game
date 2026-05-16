@@ -27,6 +27,7 @@ export class Bullet extends Phaser.Physics.Arcade.Image {
   ): void {
     this.enableBody(true, x, y, true, true);
     this.setActive(true).setVisible(true);
+    this.setTint(fromPlayer ? 0xffee44 : 0xff6644);
     this.damage     = damage;
     this.pierce     = pierce;
     this.aoe        = aoe;
@@ -35,7 +36,9 @@ export class Bullet extends Phaser.Physics.Arcade.Image {
     this.startX     = x;
     this.startY     = y;
     this.travelSq   = 0;
-    this.scene.physics.velocityFromAngle(angle * Phaser.Math.RAD_TO_DEG, speed, this.body!.velocity as Phaser.Math.Vector2);
+    this.setRotation(angle);
+    const body = this.body as Phaser.Physics.Arcade.Body;
+    body.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
   }
 
   update(_time: number, _delta: number): void {

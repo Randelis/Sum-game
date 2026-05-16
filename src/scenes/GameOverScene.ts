@@ -7,59 +7,67 @@ export class GameOverScene extends Phaser.Scene {
 
   create(data: { score: number; wave: number; level: number }): void {
     const save = new SaveSystem();
+    const wasNewBest = data.score > save.getHighScore();
     save.saveHighScore(data.score);
     const best = save.getHighScore();
 
     this.add.rectangle(GAME_W / 2, GAME_H / 2, GAME_W, GAME_H, 0x0a0000);
 
-    this.add.text(GAME_W / 2, 160, 'GAME OVER', {
-      fontSize: '60px', color: '#ff2222',
-      stroke: '#000', strokeThickness: 8,
+    this.add.text(GAME_W / 2, 130, 'GAME OVER', {
+      fontSize: '68px', color: '#ff2222', fontStyle: 'bold',
+      stroke: '#000', strokeThickness: 10,
     }).setOrigin(0.5);
 
-    this.add.text(GAME_W / 2, 260, `Wave reached: ${data.wave}`, {
-      fontSize: '26px', color: '#ffffff',
+    // Stats panel
+    const sy = 240;
+    this.add.text(GAME_W / 2, sy,        `Wave reached:  ${data.wave}`,  { fontSize: '24px', color: '#ffffff' }).setOrigin(0.5);
+    this.add.text(GAME_W / 2, sy + 38,   `Level:  ${data.level}`,         { fontSize: '22px', color: '#aaaaaa' }).setOrigin(0.5);
+    this.add.text(GAME_W / 2, sy + 80,   `Score:  ${data.score.toLocaleString()}`, {
+      fontSize: '30px', color: '#ffcc00', fontStyle: 'bold',
+      stroke: '#000', strokeThickness: 4,
     }).setOrigin(0.5);
 
-    this.add.text(GAME_W / 2, 300, `Level: ${data.level}`, {
-      fontSize: '22px', color: '#aaaaaa',
-    }).setOrigin(0.5);
-
-    this.add.text(GAME_W / 2, 340, `Score: ${data.score}`, {
-      fontSize: '28px', color: '#ffcc00',
-    }).setOrigin(0.5);
-
-    if (data.score >= best) {
-      this.add.text(GAME_W / 2, 385, '⭐ NEW HIGH SCORE! ⭐', {
-        fontSize: '24px', color: '#ffaa00',
+    if (wasNewBest) {
+      this.add.text(GAME_W / 2, sy + 130, '⭐ NEW HIGH SCORE! ⭐', {
+        fontSize: '24px', color: '#ffaa00', fontStyle: 'bold',
       }).setOrigin(0.5);
     } else {
-      this.add.text(GAME_W / 2, 385, `Best: ${best}`, {
-        fontSize: '20px', color: '#888888',
+      this.add.text(GAME_W / 2, sy + 130, `Best:  ${best.toLocaleString()}`, {
+        fontSize: '18px', color: '#666666',
       }).setOrigin(0.5);
     }
 
     // Play again button
-    const btnBg = this.add.rectangle(GAME_W / 2, 480, 240, 65, 0x226622)
+    this._button(GAME_W / 2, 510, 260, 70, '▶ PLAY AGAIN', 0x226622, 0x33aa33, '#ffffff', 26, () => this.scene.start('Game'));
+
+    // Main menu button (smaller)
+    this._button(GAME_W / 2, 605, 180, 50, 'Main Menu', 0x222222, 0x444444, '#aaaaaa', 18, () => this.scene.start('Menu'));
+
+    if (this.input.keyboard) {
+      this.input.keyboard.once('keydown-ENTER', () => this.scene.start('Game'));
+      this.input.keyboard.once('keydown-SPACE', () => this.scene.start('Game'));
+    }
+  }
+
+  private _button(
+    cx: number, cy: number, w: number, h: number,
+    label: string, fill: number, fillHover: number,
+    textColor: string, fontSize: number,
+    onTap: () => void,
+  ): void {
+    const bg = this.add.rectangle(cx, cy, w, h, fill)
+      .setStrokeStyle(2, 0xffffff, 0.15)
       .setInteractive({ useHandCursor: true });
-    const btnText = this.add.text(GAME_W / 2, 480, 'PLAY AGAIN', {
-      fontSize: '28px', color: '#fff', stroke: '#000', strokeThickness: 4,
+    const txt = this.add.text(cx, cy, label, {
+      fontSize: `${fontSize}px`, color: textColor, fontStyle: 'bold',
+      stroke: '#000', strokeThickness: 3,
     }).setOrigin(0.5);
-
-    btnBg.on('pointerover', () => { btnBg.setFillStyle(0x33aa33); btnText.setScale(1.05); });
-    btnBg.on('pointerout',  () => { btnBg.setFillStyle(0x226622); btnText.setScale(1); });
-    btnBg.on('pointerdown', () => { this.scene.start('Game'); });
-
-    // Menu button
-    const menuBg = this.add.rectangle(GAME_W / 2, 560, 180, 50, 0x333333)
-      .setInteractive({ useHandCursor: true });
-    this.add.text(GAME_W / 2, 560, 'Main Menu', {
-      fontSize: '20px', color: '#aaaaaa',
-    }).setOrigin(0.5);
-
-    menuBg.on('pointerdown', () => { this.scene.start('Menu'); });
-
-    this.input.keyboard!.once('keydown-ENTER', () => this.scene.start('Game'));
-    this.input.keyboard!.once('keydown-SPACE', () => this.scene.start('Game'));
+    bg.on('pointerover', () => { bg.setFillStyle(fillHover); txt.setScale(1.04); });
+    bg.on('pointerout',  () => { bg.setFillStyle(fill); txt.setScale(1); });
+    bg.on('pointerdown', () => {
+      bg.setScale(0.96);
+      this.tweens.add({ targets: bg, scale: 1, duration: 120 });
+      onTap();
+    });
   }
 }

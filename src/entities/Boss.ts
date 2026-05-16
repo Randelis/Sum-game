@@ -34,11 +34,13 @@ export class Boss {
     this.sprite = scene.physics.add.image(x, y, 'boss');
     this.sprite.setDepth(DEPTH.ENEMY + 1);
     this.sprite.setTint(def.color);
-    this.sprite.setScale(2.2);
+    this.sprite.setScale(1.8);
     this.sprite.setData('boss', this);
 
+    // Body uses scaled radius so hitbox matches visual size
     const body = this.sprite.body as Phaser.Physics.Arcade.Body;
     body.setCircle(32);
+    body.setOffset(0, 0);
     body.setCollideWorldBounds(true);
 
     for (const ab of def.abilities) {
@@ -52,7 +54,7 @@ export class Boss {
     this._tickPhase();
     this._moveTowardPlayer(dt, px, py);
     this._tickAbilities(dt, px, py, bulletGroup);
-    this._tickUltimate(dt, px, py);
+    this._tickUltimate(dt, bulletGroup);
   }
 
   takeDamage(amount: number): void {
@@ -196,16 +198,26 @@ export class Boss {
     this.sprite.setPosition(px + Math.cos(angle) * dist, py + Math.sin(angle) * dist);
   }
 
-  private _tickUltimate(dt: number, px: number, py: number): void {
+  private _tickUltimate(dt: number, group: Phaser.Physics.Arcade.Group): void {
     this._ultimateTimer -= dt;
     if (this._ultimateTimer > 0) return;
-    this._ultimateTimer = this.def.ultimateMs / 1000 * (this.phase === 3 ? 0.6 : 1);
+    // Ultimates fire more often in later phases
+    this._ultimateTimer = (this.def.ultimateMs / 1000) * 4 * (this.phase === 3 ? 0.5 : 1);
 
-    // Ultimate: large radial burst
     this.onAbility?.('ultimate');
-    const body = this.sprite.body as Phaser.Physics.Arcade.Body;
-    void px; void py; void body;
-    // Radial burst — requires bullet group; skip if full
+    // Dense radial burst, +1 extra ring in phase 2/3
+    const rings = this.phase === 1 ? 1 : this.phase === 2 ? 2 : 3;
+    for (let r = 0; r < rings; r++) {
+      const count  = 14;
+      const offset = (r / rings) * (Math.PI / count);
+      const speed  = 220 + r * 40;
+      for (let i = 0; i < count; i++) {
+        const angle  = (i / count) * Math.PI * 2 + offset;
+        const bullet = group.get() as Bullet | null;
+        if (!bullet) return;
+        bullet.fire(this.sprite.x, this.sprite.y, angle, speed, 14, 0, 0, 700, false);
+      }
+    }
   }
 
   destroy(): void {
