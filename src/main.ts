@@ -5,7 +5,6 @@ import { PreloadScene }  from './scenes/PreloadScene';
 import { MenuScene }     from './scenes/MenuScene';
 import { GameScene }     from './scenes/GameScene';
 import { GameOverScene } from './scenes/GameOverScene';
-import { RotateScene }   from './scenes/RotateScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type:            Phaser.AUTO,
@@ -19,7 +18,6 @@ const config: Phaser.Types.Core.GameConfig = {
     MenuScene,
     GameScene,
     GameOverScene,
-    RotateScene,
   ],
   scale: {
     mode:       Phaser.Scale.FIT,

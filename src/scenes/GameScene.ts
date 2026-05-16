@@ -61,14 +61,6 @@ export class GameScene extends Phaser.Scene {
   constructor() { super('Game'); }
 
   create(): void {
-    // Portrait guard
-    if (window.innerWidth < window.innerHeight) {
-      this.registry.set('_rotateReturnScene', 'Game');
-      this.scene.pause();
-      this.scene.launch('Rotate');
-      return;
-    }
-
     this._audio = new AudioSystem();
     this._save  = new SaveSystem();
 

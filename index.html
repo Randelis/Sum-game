@@ -2,17 +2,73 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#080810" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Zombie Shooter</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #080810; overflow: hidden; }
-    #game { width: 100vw; height: 100dvh; }
+    html, body { width: 100%; height: 100%; background: #080810; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+    #game { width: 100vw; height: 100dvh; position: fixed; inset: 0; }
+    #game canvas { display: block; }
+
+    #rotate-prompt {
+      display: none;
+      position: fixed; inset: 0;
+      z-index: 10000;
+      background: #080810;
+      color: #ffffff;
+      align-items: center; justify-content: center;
+      flex-direction: column;
+      text-align: center;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #rotate-prompt .icon { font-size: 84px; margin-bottom: 24px; animation: rotate-hint 2s ease-in-out infinite; }
+    #rotate-prompt h2 { font-size: 22px; color: #ffcc00; margin-bottom: 12px; }
+    #rotate-prompt p  { font-size: 16px; color: #aaaaaa; line-height: 1.5; max-width: 320px; }
+    @keyframes rotate-hint {
+      0%, 100% { transform: rotate(-15deg); }
+      50%      { transform: rotate(75deg); }
+    }
+
+    @media (orientation: portrait) {
+      #game           { display: none; }
+      #rotate-prompt  { display: flex; }
+    }
+
+    #loading {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: #888888; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 18px;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
+  <div id="loading">Loading…</div>
   <div id="game"></div>
+  <div id="rotate-prompt">
+    <div class="icon">📱</div>
+    <h2>Please rotate your device</h2>
+    <p>This game is designed for landscape orientation. Turn your phone sideways to play!</p>
+  </div>
   <script type="module" src="/src/main.ts"></script>
+  <script>
+    // Hide loading once the canvas is in DOM
+    const _hideLoading = () => {
+      const ld = document.getElementById('loading');
+      if (ld && document.querySelector('#game canvas')) {
+        ld.style.display = 'none';
+        return true;
+      }
+      return false;
+    };
+    const _interval = setInterval(() => { if (_hideLoading()) clearInterval(_interval); }, 100);
+    setTimeout(() => { const ld = document.getElementById('loading'); if (ld) ld.style.display = 'none'; }, 5000);
+  </script>
 </body>
 </html>
