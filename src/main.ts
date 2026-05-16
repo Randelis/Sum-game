@@ -22,6 +22,8 @@ const config: Phaser.Types.Core.GameConfig = {
   scale: {
     mode:       Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
+    width:      GAME_W,
+    height:     GAME_H,
   },
   physics: {
     default: 'arcade',
@@ -40,4 +42,19 @@ const config: Phaser.Types.Core.GameConfig = {
   },
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+// Hide boot status once any scene is rendering
+game.events.once(Phaser.Core.Events.READY, () => {
+  const el = document.getElementById('boot-status');
+  if (el) el.style.display = 'none';
+});
+
+// Force Phaser to recompute scale on orientation/visibility changes — mobile
+// browsers sometimes change viewport size without firing window.resize.
+const refreshScale = (): void => {
+  if (game.scale) game.scale.refresh();
+};
+window.addEventListener('orientationchange', () => setTimeout(refreshScale, 100));
+window.addEventListener('resize',            () => setTimeout(refreshScale, 50));
+document.addEventListener('visibilitychange', refreshScale);
