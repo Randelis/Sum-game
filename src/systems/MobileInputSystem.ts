@@ -68,15 +68,31 @@ export class MobileInputSystem {
   }
 
   destroy(): void {
-    this.scene.input.off('pointerdown', this._onPointerDown);
-    this.scene.input.off('pointermove', this._onPointerMove);
-    this.scene.input.off('pointerup',   this._onPointerUp);
+    this.scene.input.off('pointerdown',     this._onPointerDown);
+    this.scene.input.off('pointermove',     this._onPointerMove);
+    this.scene.input.off('pointerup',       this._onPointerUp);
     this.scene.input.off('pointerupoutside', this._onPointerUp);
+    this.scene.input.off('pointercancel',   this._onPointerUp);
+    window.removeEventListener('blur',              this._onWindowBlur);
+    document.removeEventListener('visibilitychange', this._onVisibilityChange);
     this._joyBase.destroy();
     this._joyThumb.destroy();
     this._btnDash.destroy();
     this._btnHeal.destroy();
     this._btnSwap.destroy();
+  }
+
+  private _onWindowBlur = (): void => { this._resetJoystick(); };
+  private _onVisibilityChange = (): void => { if (document.hidden) this._resetJoystick(); };
+
+  private _resetJoystick(): void {
+    if (!this._joyActive) return;
+    this._joyActive    = false;
+    this._joyPointerId = -1;
+    this._joyHome      = { x: this._joyCenter.x, y: this._joyCenter.y };
+    this._joyBase.setPosition(this._joyCenter.x, this._joyCenter.y).setAlpha(0.10);
+    this._joyThumb.setPosition(this._joyCenter.x, this._joyCenter.y);
+    this.move.x = 0; this.move.y = 0;
   }
 
   // ─── builders ─────────────────────────────────────────────────────────────
@@ -173,6 +189,11 @@ export class MobileInputSystem {
     this.scene.input.on('pointermove',      this._onPointerMove);
     this.scene.input.on('pointerup',        this._onPointerUp);
     this.scene.input.on('pointerupoutside', this._onPointerUp);
+    // OS-cancelled touches (notification, gesture, multitouch glitch) used to
+    // leave _joyActive stuck → player drifted forever. Cover all cancel paths.
+    this.scene.input.on('pointercancel',    this._onPointerUp);
+    window.addEventListener('blur',              this._onWindowBlur);
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
   }
 
   private _inJoyZone(x: number, y: number): boolean {

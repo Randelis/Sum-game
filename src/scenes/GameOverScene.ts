@@ -42,11 +42,6 @@ export class GameOverScene extends Phaser.Scene {
 
     // Main menu button (smaller)
     this._button(GAME_W / 2, 605, 180, 50, 'Main Menu', 0x222222, 0x444444, '#aaaaaa', 18, () => this.scene.start('Menu'));
-
-    if (this.input.keyboard) {
-      this.input.keyboard.once('keydown-ENTER', () => this.scene.start('Game'));
-      this.input.keyboard.once('keydown-SPACE', () => this.scene.start('Game'));
-    }
   }
 
   private _button(

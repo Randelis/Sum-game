@@ -208,9 +208,17 @@ export class GameScene extends Phaser.Scene {
     });
 
     this._upgrades = new UpgradeSystem(this.player, (choices) => {
+      this._audio.levelUp();
+      // All upgrades maxed — pickUpgrades returned []. Skip the menu entirely
+      // (showing it with zero cards would freeze the game forever) and award
+      // a small score bonus instead.
+      if (choices.length === 0) {
+        this.player.score += 500;
+        this._hud.showAnnounce('💎 MAX POWER +500', 2000);
+        return;
+      }
       this._paused = true;
       this._upgradeMenu.show(choices);
-      this._audio.levelUp();
     });
 
     this._combat = new CombatSystem(this, this.player, {
@@ -261,19 +269,6 @@ export class GameScene extends Phaser.Scene {
       this.player.setWeapon(def.id);
       this._paused = false;
     });
-
-    if (this.input.keyboard) {
-      this.input.keyboard.on('keydown-ESC', () => {
-        if (this._upgradeMenu.isOpen || this._weaponPicker.isOpen) {
-          this._upgradeMenu.hide();
-          this._weaponPicker.hide();
-          this._paused = false;
-        } else {
-          this._paused = !this._paused;
-        }
-      });
-      this.input.keyboard.on('keydown-Q', () => { this._openWeaponPicker(); });
-    }
   }
 
   private _openWeaponPicker(): void {

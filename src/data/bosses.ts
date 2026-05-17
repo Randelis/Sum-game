@@ -77,6 +77,6 @@ export const BOSSES: BossDef[] = [
 ];
 
 export function getBossForWave(wave: number): BossDef {
-  const idx = Math.floor(wave / BOSS_WAVE) - 1;
+  const idx = Math.max(0, Math.floor(wave / BOSS_WAVE) - 1);
   return BOSSES[idx % BOSSES.length];
 }

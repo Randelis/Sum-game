@@ -150,7 +150,9 @@ export class CombatSystem {
     const sprite = _spriteObj as Phaser.Physics.Arcade.Image;
     const enemy  = sprite.getData('enemy') as Enemy | undefined;
     if (!enemy || enemy.isDead) return;
-    this.player.takeDamage(enemy.def.contactDamage);
+    // Use the short-cooldown contact path so continuous overlap deals real DPS
+    // (routing through the 600ms iframe makes standing on enemies harmless).
+    this.player.takeContactDamage(enemy.def.contactDamage);
     this._cb.onPlayerDamage(enemy.def.contactDamage);
   }
 
@@ -158,7 +160,9 @@ export class CombatSystem {
     const sprite = _spriteObj as Phaser.Physics.Arcade.Image;
     const boss   = sprite.getData('boss') as Boss | undefined;
     if (!boss || boss.isDead) return;
-    this.player.takeDamage(boss.def.contactDamage);
+    // Bosses tick contact damage at a higher multiplier — touching a boss
+    // should hurt much more than touching a regular zombie.
+    this.player.takeContactDamage(boss.def.contactDamage * 1.5);
     this._cb.onPlayerDamage(boss.def.contactDamage);
   }
 

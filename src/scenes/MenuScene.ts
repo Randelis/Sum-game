@@ -62,12 +62,6 @@ export class MenuScene extends Phaser.Scene {
     this.add.text(GAME_W / 2, GAME_H - 50, 'Touch joystick to move • Tap 💨 to dash • Tap 🧪 to heal • 🔄 swap weapon', {
       fontSize: '15px', color: '#555555',
     }).setOrigin(0.5);
-
-    // Desktop keyboard shortcut
-    if (this.input.keyboard) {
-      this.input.keyboard.once('keydown-ENTER', () => this._startGame());
-      this.input.keyboard.once('keydown-SPACE', () => this._startGame());
-    }
   }
 
   private _addInstallButton(): void {

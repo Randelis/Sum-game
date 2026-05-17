@@ -34,6 +34,9 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   input: {
     activePointers: 4,
+    // Mobile-only game — disable the keyboard plugin entirely so Phaser
+    // doesn't allocate listeners we'd never use.
+    keyboard: false,
   },
   render: {
     pixelArt:      false,
