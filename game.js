@@ -27,6 +27,12 @@ const mmc    = document.getElementById('mmc');
 const mctx   = mmc.getContext('2d');
 
 const $ = id => document.getElementById(id);
+
+const safeStorage = {
+  get(k, def=0) { try { return +(localStorage.getItem(k) || def); } catch(e) { return +def; } },
+  set(k, v)     { try { localStorage.setItem(k, v); } catch(e) {} },
+};
+
 const ui = {
   hpBar: $('hp-bar'), hpText: $('hp-text'),
   xpBar: $('xp-bar'),
@@ -49,9 +55,9 @@ const ui = {
   hiBadge: $('hi-badge'), hiOverlay: $('hi-overlay'),
 };
 // initial hi-score display
-if ($('hi-badge')) $('hi-badge').textContent = `Best ${+(localStorage.getItem('zs_hi')||0)}`;
+if ($('hi-badge')) $('hi-badge').textContent = `Best ${safeStorage.get('zs_hi')}`;
 if ($('hi-overlay')) {
-  const h = +(localStorage.getItem('zs_hi')||0);
+  const h = safeStorage.get('zs_hi');
   $('hi-overlay').textContent = h > 0 ? `★ Best: ${h}` : '';
 }
 
@@ -486,7 +492,7 @@ function newUpgrades() {
 const DASH_BASE_CD = 4.0;      // seconds
 const DASH_DURATION = 0.22;    // seconds
 const DASH_SPEED_MULT = 4.5;   // x player speed during dash
-let hiScore = +(localStorage.getItem('zs_hi') || 0);
+let hiScore = safeStorage.get('zs_hi');
 
 const W = () => WEAPONS[currentWeapon];
 const STATS = {
@@ -499,7 +505,7 @@ const STATS = {
   critChance:  () => player.upgrades.critChance * 0.10,
   critMult:    () => 2.0 + player.upgrades.critMult * 0.5,
   bulletCount: () => W().bulletCount + player.upgrades.bulletCount,
-  pierce:      () => W().pierce      + player.upgrades.pierce - 1,
+  pierce:      () => W().pierce      + player.upgrades.pierce,
   aoe:         () => W().aoe         + player.upgrades.aoe,
   spread:      () => W().spread,
   maxAmmo:     () => Math.floor(W().maxAmmo * (1 + player.upgrades.ammoMax * 0.30)),
@@ -624,18 +630,20 @@ function pickEnemyType() {
     return r < 0.4 ? 'spitter' : r < 0.7 ? 'bomber' : 'tank';
   }
   const w = wave.current, r = Math.random();
+  // Cumulative bands — each threshold must be strictly greater than the previous
+  // so every gated enemy type actually has a non-empty spawn window.
   if (w >= 10 && r < 0.05) return 'berserker';
   if (w >= 8  && r < 0.10) return 'ghost';
   if (w >= 8  && r < 0.14) return 'bouncer';
-  if (w >= 7  && r < 0.10) return 'screamer';
-  if (w >= 7  && r < 0.16) return 'shaman';
-  if (w >= 6  && r < 0.18) return 'bomber';
-  if (w >= 5  && r < 0.20) return 'armored';
-  if (w >= 4  && r < 0.22) return 'exploder';
-  if (w >= 3  && r < 0.18) return 'crawler';
-  if (w >= 3  && r < 0.30) return 'spitter';
-  if (w >= 2  && r < 0.38) return 'fast';
-  if (w >= 3  && r < 0.48) return 'tank';
+  if (w >= 7  && r < 0.19) return 'screamer';
+  if (w >= 7  && r < 0.23) return 'shaman';
+  if (w >= 6  && r < 0.27) return 'bomber';
+  if (w >= 5  && r < 0.31) return 'armored';
+  if (w >= 4  && r < 0.35) return 'exploder';
+  if (w >= 3  && r < 0.41) return 'crawler';
+  if (w >= 3  && r < 0.49) return 'spitter';
+  if (w >= 2  && r < 0.59) return 'fast';
+  if (w >= 3  && r < 0.71) return 'tank';
   return 'basic';
 }
 
@@ -804,6 +812,23 @@ function bombExplode(b) {
   addShake(5);
   sfx.explode();
   if (within(player.x, player.y, b.tx, b.ty, b.radius)) damagePlayer(b.dmg);
+}
+
+// Silent DOT damage (napalm, etc.) — respects armor, dodge, and boss phase
+// iframes, but skips damage numbers / SFX so it doesn't spam per-frame.
+function tickDamageEnemy(e, dmg) {
+  if (Math.random() < e.dodge) return;
+  if (e.isBoss && e.phaseTransition > 0) return;
+  const punish = e.isBoss && e.exhausted > 0;
+  const actual = dmg * (1 - e.armor) * (punish ? 1.5 : 1);
+  e.hp -= actual;
+  if (e.berserker && !e.raging && e.hp < e.maxHp * 0.4) {
+    e.raging = true;
+    e.speed = e.baseSpeed * 1.8;
+    spawnParticles(e.x, e.y, '#ff0000', 14, 140, 0.6);
+  }
+  if (e.hp <= 0) killEnemy(e);
+  else if (e.isBoss) updateBossBar(e);
 }
 
 function hitEnemy(e, dmg) {
@@ -1215,16 +1240,7 @@ function startNextBossWindup(e) {
 }
 
 
-/* ════════════ 11) INPUT ════════════ */
-const keys = {};
-document.addEventListener('keydown', e => { keys[e.key] = true; });
-document.addEventListener('keyup',   e => { keys[e.key] = false; });
-document.addEventListener('keydown', e => {
-  if (e.key === 'r' || e.key === 'R') startReload();
-  if (e.key === 'q' || e.key === 'Q') cycleWeapon();
-  if (e.key === ' ' || e.key === 'Shift') { e.preventDefault(); tryDash(); }
-  if (e.key === 'f' || e.key === 'F') useFlask();
-});
+/* ════════════ 11) INPUT (mobile / touch only) ════════════ */
 
 function useFlask() {
   if (!gameRunning || paused || bossIntro) return;
@@ -1243,13 +1259,7 @@ function updateFlaskUI() {
 }
 
 function readInputDir() {
-  let dx = 0, dy = 0;
-  if (keys['ArrowLeft'] || keys['a'] || keys['A']) dx -= 1;
-  if (keys['ArrowRight']|| keys['d'] || keys['D']) dx += 1;
-  if (keys['ArrowUp']   || keys['w'] || keys['W']) dy -= 1;
-  if (keys['ArrowDown'] || keys['s'] || keys['S']) dy += 1;
-  dx += joy.vec.x; dy += joy.vec.y;
-  return { dx, dy };
+  return { dx: joy.vec.x, dy: joy.vec.y };
 }
 
 function tryDash() {
@@ -1287,7 +1297,7 @@ ui.joyZone.addEventListener('touchstart', e => {
 document.addEventListener('touchmove', e => {
   for (const t of e.changedTouches) if (t.identifier === joy.touchId) { handleJoyMove(t); break; }
 }, { passive:false });
-document.addEventListener('touchend', e => {
+function releaseJoy(e) {
   for (const t of e.changedTouches) {
     if (t.identifier === joy.touchId) {
       joy.touchId = null; joy.vec.x = 0; joy.vec.y = 0;
@@ -1296,7 +1306,17 @@ document.addEventListener('touchend', e => {
       break;
     }
   }
-});
+}
+document.addEventListener('touchend',    releaseJoy);
+document.addEventListener('touchcancel', releaseJoy);
+// Visibility loss can strand the joystick touch — clear it on background/blur.
+function clearJoyState() {
+  joy.touchId = null; joy.vec.x = 0; joy.vec.y = 0;
+  ui.joyKnob.style.left='50%'; ui.joyKnob.style.top='50%';
+  ui.joyKnob.style.transform='translate(-50%,-50%)';
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) clearJoyState(); });
+window.addEventListener('blur', clearJoyState);
 function handleJoyMove(t) {
   const dx = t.clientX - joy.center.x;
   const dy = t.clientY - joy.center.y;
@@ -1310,13 +1330,14 @@ function handleJoyMove(t) {
   ui.joyKnob.style.transform = 'translate(-50%,-50%)';
 }
 
-// Buttons — FIRE is now a DASH button
+// Buttons — DASH on the big right button; GUNS opens the weapon picker.
 ui.shootBtn.addEventListener('touchstart', e => { e.preventDefault(); resumeAudio(); tryDash(); }, { passive:false });
-ui.shootBtn.addEventListener('mousedown',  e => { e.preventDefault(); resumeAudio(); tryDash(); });
-ui.weaponBtn.addEventListener('click',    e => { e.preventDefault(); openWeaponPicker(); });
-ui.weaponBtn.addEventListener('touchend', e => { e.preventDefault(); openWeaponPicker(); }, { passive:false });
-ui.wpnCloseBtn.addEventListener('click',    () => { ui.wpnPicker.style.display='none'; paused=false; });
+ui.weaponBtn.addEventListener('touchend',  e => { e.preventDefault(); openWeaponPicker(); }, { passive:false });
 ui.wpnCloseBtn.addEventListener('touchend', e => { e.preventDefault(); ui.wpnPicker.style.display='none'; paused=false; }, { passive:false });
+// Tap the flask badge to drink a flask (replaces the old "F" keyboard binding).
+if (ui.flaskBadge) {
+  ui.flaskBadge.addEventListener('touchend', e => { e.preventDefault(); useFlask(); }, { passive:false });
+}
 
 
 /* ════════════ 12) HUD UPDATES ════════════ */
@@ -1906,9 +1927,9 @@ function update(dt) {
         }
       }
 
-      // Screamer aura → slow player
+      // Screamer aura → slow player (don't shorten a longer existing slow like web)
       if (e.screamer) {
-        if (within(player.x, player.y, e.x, e.y, 120)) player.slow = 0.3;
+        if (within(player.x, player.y, e.x, e.y, 120)) player.slow = Math.max(player.slow, 0.3);
       }
     }
 
@@ -1948,13 +1969,16 @@ function update(dt) {
       }
     }
 
-    // Melee contact
+    // Melee contact — both boss and zombie contact deal continuous DPS via
+    // damagePlayerContact (its own short cooldown, frame-rate independent).
+    // Routing the boss through damagePlayer's 0.5s iframes made boss bodies
+    // nearly harmless to stand on, so use the same path with a higher mult.
     const d2 = dist(player.x, player.y, e.x, e.y);
     if (d2 < player.r + e.r) {
-      const contactDmg = e.damage * (e.isBoss ? (e.abilityDmgMult||1) : 1)
-                       * dt * (e.ranged && !e.isBoss ? 0.3 : 1);
-      if (e.isBoss) damagePlayer(contactDmg);        // boss contact: respects iframes
-      else          damagePlayerContact(contactDmg); // zombie contact: continuous DPS
+      const bossMult = e.isBoss ? (e.abilityDmgMult || 1) * 1.5 : 1;
+      const rangedCut = (e.ranged && !e.isBoss) ? 0.3 : 1;
+      const contactDmg = e.damage * bossMult * rangedCut * dt;
+      damagePlayerContact(contactDmg);
     }
   }
   keep(enemies);
@@ -2007,8 +2031,8 @@ function update(dt) {
     for (const e of enemies) {
       if (!e.alive) continue;
       const dx = e.x - fp.x, dy = e.y - fp.y;
-      if (dx*dx + dy*dy < r2) e.hp -= fp.dps * dt;
-      if (e.hp <= 0 && e.alive) killEnemy(e);
+      // Silent DOT: respects armor / dodge / boss phase iframes, no FX spam.
+      if (dx*dx + dy*dy < r2) tickDamageEnemy(e, fp.dps * dt);
     }
     // emit fire particles
     if (Math.random() < 0.6) {
@@ -2022,8 +2046,10 @@ function update(dt) {
   keep(firePatches);
 
   // ── Particles ──
+  // Frame-rate-independent damping: 0.88 per (1/60)s reference frame.
+  const partDamp = Math.pow(0.88, dt * 60);
   for (const p of particles) {
-    if (p.type === 'dot') { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.88; p.vy *= 0.88; }
+    if (p.type === 'dot') { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= partDamp; p.vy *= partDamp; }
     else if (p.type === 'ring') { p.r = p.maxR * (1 - p.life / p.maxLife); }
     p.life -= dt;
   }
@@ -2070,7 +2096,7 @@ function update(dt) {
     if (isBossWave()) {
       wave.bossSpawned = true;
       wave.spawned++;
-      const bossIdx = Math.floor((wave.current - 5) / 5);
+      const bossIdx = Math.max(0, Math.floor((wave.current - 5) / 5));
       spawnBoss(bossIdx);
     } else {
       if (wave.spawned < wave.enemiesPerWave && alive < 50) {
@@ -2262,6 +2288,16 @@ function showUpgrades() {
   ui.upgChoices.innerHTML = '';
 
   const available = UPGRADES.filter(u => player.upgrades[u.id] < u.max);
+  // All upgrades maxed — nothing to show, would freeze the game with a blank
+  // panel. Give a small score bonus and resume play.
+  if (available.length === 0) {
+    ui.upgPanel.style.display = 'none';
+    player.score += 500;
+    ui.scoreBadge.textContent = `Score ${player.score}`;
+    showNotif('💎 MAX POWER +500', '#ffcc00');
+    paused = false;
+    return;
+  }
   const pool = available.sort(() => Math.random() - 0.5).slice(0, 3);
 
   for (const upg of pool) {
@@ -2291,8 +2327,7 @@ function showUpgrades() {
       }
       paused = false;
     };
-    card.addEventListener('click', pick);
-    card.addEventListener('touchend', e => { e.preventDefault(); pick(); });
+    card.addEventListener('touchend', e => { e.preventDefault(); pick(); }, { passive:false });
     ui.upgChoices.appendChild(card);
   }
   ui.upgPanel.style.display = 'flex';
@@ -2322,8 +2357,7 @@ function openWeaponPicker() {
         ui.wpnPicker.style.display = 'none';
         paused = false;
       };
-      card.addEventListener('click', pick);
-      card.addEventListener('touchend', e => { e.preventDefault(); pick(); });
+      card.addEventListener('touchend', e => { e.preventDefault(); pick(); }, { passive:false });
     }
     ui.wpnList.appendChild(card);
   }
@@ -2342,7 +2376,7 @@ function cycleWeapon() {
 function gameOver() {
   gameRunning = false;
   const isNewHi = player.score > hiScore;
-  if (isNewHi) { hiScore = player.score; localStorage.setItem('zs_hi', hiScore); }
+  if (isNewHi) { hiScore = player.score; safeStorage.set('zs_hi', hiScore); }
   if (wakeLockSentinel) { try { wakeLockSentinel.release(); } catch(e){} wakeLockSentinel = null; }
   vibrate([0, 60, 40, 60, 40, 200]);
   ui.overlay.innerHTML = `
@@ -2357,8 +2391,10 @@ function gameOver() {
     </div>
     <button class="big-btn purple" id="start-btn">PLAY AGAIN</button>`;
   ui.overlay.style.display = 'flex';
-  $('start-btn').addEventListener('click', startGame);
-  $('start-btn').addEventListener('touchend', e => { e.preventDefault(); startGame(); }, { passive:false });
+  // overlay.innerHTML replaced the start button — refresh the cached ref so
+  // listeners attach to the live node and old detached nodes can be GC'd.
+  ui.startBtn = $('start-btn');
+  ui.startBtn.addEventListener('touchend', e => { e.preventDefault(); startGame(); }, { passive:false });
 }
 
 function startGame() {
@@ -2423,7 +2459,6 @@ function startGame() {
   }
 }
 
-ui.startBtn.addEventListener('click', startGame);
 ui.startBtn.addEventListener('touchend', e => { e.preventDefault(); startGame(); }, { passive:false });
 
 /* Service worker — offline / installable PWA */

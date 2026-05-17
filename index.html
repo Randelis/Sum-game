@@ -48,7 +48,7 @@ canvas { display:block; position:fixed; inset:0; }
 #hp-bar-wrap { flex:1; height:11px; background:#2a0008; border-radius:6px; border:1px solid #550014; overflow:hidden; }
 #hp-bar { height:100%; background:linear-gradient(90deg,#cc0022,#ff4466); transition:width .12s; }
 #hp-text { font-size:10px; color:#fff; min-width:54px; text-align:right; font-weight:bold; }
-#flask-badge { font-size:14px; margin-left:6px; letter-spacing:-3px; text-shadow:0 0 6px #66ff88; }
+#flask-badge { font-size:14px; margin-left:6px; letter-spacing:-3px; text-shadow:0 0 6px #66ff88; pointer-events:auto; cursor:pointer; padding:2px 4px; }
 
 /* ── TOP RIGHT: badges stack ── */
 #badges {
@@ -239,7 +239,7 @@ canvas { display:block; position:fixed; inset:0; }
     <span class="lab">❤</span>
     <div id="hp-bar-wrap"><div id="hp-bar"></div></div>
     <span id="hp-text">100/100</span>
-    <span id="flask-badge" title="F — выпить (fлякон)">🍶🍶🍶</span>
+    <span id="flask-badge">🍶🍶🍶</span>
   </div>
 
   <!-- Badges -->
