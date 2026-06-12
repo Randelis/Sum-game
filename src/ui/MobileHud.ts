@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_W, GAME_H, DEPTH } from '../utils/constants';
+import { GAME_W, GAME_H, DEPTH, FONT } from '../utils/constants';
 import { Player } from '../entities/Player';
 import { Boss }   from '../entities/Boss';
 
@@ -97,7 +97,7 @@ export class MobileHud {
       this._lastScore = player.score;
     }
     if (wave !== this._lastWave) {
-      this._waveText.setText(`Wave ${wave}`);
+      this._waveText.setText(`WAVE ${wave}`);
       this._lastWave = wave;
     }
 
@@ -137,6 +137,7 @@ export class MobileHud {
     const sx  = (x - cam.scrollX) * cam.zoom;
     const sy  = (y - cam.scrollY) * cam.zoom;
     const t   = this.scene.add.text(sx, sy, `${amount}`, {
+      fontFamily: FONT,
       fontSize: '18px',
       color:    Phaser.Display.Color.IntegerToColor(color).rgba,
       stroke:   '#000', strokeThickness: 3,
@@ -157,40 +158,43 @@ export class MobileHud {
 
     // HP bar (top-left)
     const hpX = 16, hpY = 16, hpW = 280, hpH = 22;
-    this._hpBarBg = this.scene.add.rectangle(hpX, hpY, hpW, hpH, 0x000000, 0.55)
-      .setOrigin(0, 0).setStrokeStyle(2, 0x445566)
+    this._hpBarBg = this.scene.add.rectangle(hpX, hpY, hpW, hpH, 0x0a0e14, 0.72)
+      .setOrigin(0, 0).setStrokeStyle(2, 0x36506a, 0.9)
       .setScrollFactor(0).setDepth(d);
     this._hpBar = this.scene.add.rectangle(hpX + 2, hpY + 2, hpW - 4, hpH - 4, 0x44cc44)
       .setOrigin(0, 0).setScrollFactor(0).setDepth(d + 1);
     this._hpText = this.scene.add.text(hpX + hpW / 2, hpY + hpH / 2, '', {
-      fontSize: '13px', color: '#ffffff', fontStyle: 'bold',
+      fontFamily: FONT, fontSize: '13px', color: '#ffffff', fontStyle: 'bold',
+      stroke: '#0a2010', strokeThickness: 2,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(d + 2);
 
     // XP bar (below HP, thinner)
     const xpY = hpY + hpH + 6;
-    this._xpBarBg = this.scene.add.rectangle(hpX, xpY, hpW, 8, 0x000000, 0.55)
-      .setOrigin(0, 0).setStrokeStyle(1, 0x335577)
+    this._xpBarBg = this.scene.add.rectangle(hpX, xpY, hpW, 8, 0x0a0e14, 0.72)
+      .setOrigin(0, 0).setStrokeStyle(1, 0x36506a, 0.9)
       .setScrollFactor(0).setDepth(d);
-    this._xpBar = this.scene.add.rectangle(hpX + 1, xpY + 1, hpW - 2, 6, 0x66aaff)
+    this._xpBar = this.scene.add.rectangle(hpX + 1, xpY + 1, hpW - 2, 6, 0x59b7ff)
       .setOrigin(0, 0).setScrollFactor(0).setDepth(d + 1);
 
     // Level chip
-    this._levelText = this.scene.add.text(hpX + hpW + 10, hpY + 6, 'LV 1', {
-      fontSize: '14px', color: '#cce4ff', fontStyle: 'bold',
-      backgroundColor: '#223344', padding: { left: 6, right: 6, top: 2, bottom: 2 },
+    this._levelText = this.scene.add.text(hpX + hpW + 10, hpY + 4, 'LV 1', {
+      fontFamily: FONT, fontSize: '14px', color: '#cfe6ff', fontStyle: 'bold',
+      backgroundColor: '#16273c', padding: { left: 8, right: 8, top: 3, bottom: 3 },
     }).setScrollFactor(0).setDepth(d);
 
     // Wave (top center)
-    this._waveText = this.scene.add.text(GAME_W / 2, 22, 'Wave 1', {
-      fontSize: '24px', color: '#ffffff', fontStyle: 'bold',
-      stroke: '#000', strokeThickness: 4,
+    this._waveText = this.scene.add.text(GAME_W / 2, 24, 'WAVE 1', {
+      fontFamily: FONT, fontSize: '26px', color: '#f2f6fa', fontStyle: 'bold',
+      stroke: '#000000', strokeThickness: 5,
     }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(d);
+    this._waveText.setShadow(0, 3, '#000000', 6);
 
     // Score (top right)
-    this._scoreText = this.scene.add.text(GAME_W - 16, 22, '0', {
-      fontSize: '22px', color: '#ffcc00', fontStyle: 'bold',
-      stroke: '#000', strokeThickness: 3,
+    this._scoreText = this.scene.add.text(GAME_W - 16, 24, '0', {
+      fontFamily: FONT, fontSize: '24px', color: '#ffd24a', fontStyle: 'bold',
+      stroke: '#241a00', strokeThickness: 4,
     }).setOrigin(1, 0.5).setScrollFactor(0).setDepth(d);
+    this._scoreText.setShadow(0, 3, '#000000', 6);
 
     // Flask icons (below XP bar, top-left area — NOT near joystick)
     const fY = xpY + 18;
@@ -214,8 +218,8 @@ export class MobileHud {
     this._bossBar = this.scene.add.rectangle(bx + 2, by + 2, bw - 4, 14, 0xdd2222)
       .setOrigin(0, 0).setScrollFactor(0).setDepth(d + 1);
     this._bossNameText = this.scene.add.text(GAME_W / 2, by - 12, '', {
-      fontSize: '14px', color: '#ff8888', fontStyle: 'bold',
-      stroke: '#000', strokeThickness: 2,
+      fontFamily: FONT, fontSize: '15px', color: '#ff9d9d', fontStyle: 'bold',
+      stroke: '#1a0000', strokeThickness: 3,
     }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(d + 2);
 
     this._bossGroup = this.scene.add.container(0, 0, [this._bossBarBg, this._bossBar, this._bossNameText])
@@ -231,19 +235,20 @@ export class MobileHud {
     const w  = 200;
     const h  = 44;
 
-    this._ammoBg = this.scene.add.rectangle(cx, cy, w, h, 0x000000, 0.55)
-      .setOrigin(0.5).setStrokeStyle(2, 0x445566)
+    this._ammoBg = this.scene.add.rectangle(cx, cy, w, h, 0x0a0e14, 0.72)
+      .setOrigin(0.5).setStrokeStyle(2, 0x36506a, 0.9)
       .setScrollFactor(0).setDepth(d);
     this._ammoText = this.scene.add.text(cx, cy, '', {
-      fontSize: '20px', color: '#ffffff', fontStyle: 'bold',
+      fontFamily: FONT, fontSize: '20px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5).setScrollFactor(0).setDepth(d + 1);
   }
 
   private _buildAnnounce(): void {
     this._announceText = this.scene.add.text(GAME_W / 2, GAME_H / 2 - 80, '', {
-      fontSize: '44px', color: '#ffcc00', fontStyle: 'bold',
-      stroke: '#000', strokeThickness: 6,
+      fontFamily: FONT, fontSize: '46px', color: '#ffd24a', fontStyle: 'bold',
+      stroke: '#241400', strokeThickness: 8,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.HUD + 5).setVisible(false);
+    this._announceText.setShadow(0, 5, '#000000', 10);
   }
 
   private _xpThreshold(level: number): number {

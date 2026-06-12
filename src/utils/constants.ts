@@ -2,6 +2,10 @@
 export const GAME_W = 1280;
 export const GAME_H = 720;
 
+// Shared UI font stack — Phaser defaults to Courier, which reads as
+// placeholder. Every Text object should pass fontFamily: FONT.
+export const FONT = '"Segoe UI", "Helvetica Neue", Arial, sans-serif';
+
 // World dimensions
 export const WORLD_W = 6400;
 export const WORLD_H = 6400;

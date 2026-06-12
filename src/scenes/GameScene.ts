@@ -167,10 +167,21 @@ export class GameScene extends Phaser.Scene {
     this.add.tileSprite(0, 0, WORLD_W, WORLD_H, 'ground')
       .setOrigin(0).setDepth(DEPTH.BG);
 
-    // World border
+    // World border — layered glow instead of a single flat stroke
     const g = this.add.graphics().setDepth(DEPTH.BG + 1);
-    g.lineStyle(6, 0xaa3333, 0.8);
+    g.lineStyle(18, 0x4a1010, 0.35);
     g.strokeRect(0, 0, WORLD_W, WORLD_H);
+    g.lineStyle(8, 0x7a1d1d, 0.6);
+    g.strokeRect(0, 0, WORLD_W, WORLD_H);
+    g.lineStyle(3, 0xc24545, 0.9);
+    g.strokeRect(0, 0, WORLD_W, WORLD_H);
+
+    // Screen-space vignette for depth. Oversized: camera zoom (0.85) shrinks
+    // scrollFactor(0) objects toward center, so it must overshoot to cover
+    // the full visible area.
+    this.add.image(this.scale.width / 2, this.scale.height / 2, 'vignette')
+      .setDisplaySize(1280 / CAMERA_ZOOM + 60, 720 / CAMERA_ZOOM + 60)
+      .setScrollFactor(0).setDepth(DEPTH.FX + 5);
   }
 
   // ─── Groups ─────────────────────────────────────────────────────────────────

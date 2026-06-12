@@ -88,6 +88,9 @@ export class Player {
     this._handleAutoShoot(dt, bulletGroup);
     this._handleReload(dt);
 
+    // Face the aim direction — the texture's visor points right at angle 0
+    this.sprite.setRotation(this._aimAngle);
+
     this._pendingDash = false;
     this._pendingHeal = false;
   }

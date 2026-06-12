@@ -106,10 +106,10 @@ export class MobileInputSystem {
     // Joystick activation zone — entire bottom-left quadrant
     this._joyZone = { x0: 0, y0: GAME_H / 2, x1: GAME_W / 2, y1: GAME_H };
 
-    this._joyBase  = this.scene.add.circle(cx, cy, this._joyRadius, 0xffffff, 0.10)
-      .setStrokeStyle(2, 0xffffff, 0.35).setScrollFactor(0).setDepth(200);
-    this._joyThumb = this.scene.add.circle(cx, cy, 42, 0xffffff, 0.50)
-      .setStrokeStyle(2, 0xffffff, 0.7).setScrollFactor(0).setDepth(201);
+    this._joyBase  = this.scene.add.circle(cx, cy, this._joyRadius, 0x0a0e16, 0.30)
+      .setStrokeStyle(2, 0xffffff, 0.22).setScrollFactor(0).setDepth(200);
+    this._joyThumb = this.scene.add.circle(cx, cy, 40, 0xe8eef6, 0.38)
+      .setStrokeStyle(2, 0xffffff, 0.55).setScrollFactor(0).setDepth(201);
   }
 
   private _buildButtons(): void {
@@ -126,11 +126,16 @@ export class MobileInputSystem {
     label: string, color: number, radius: number,
     onTap: () => void,
   ): Phaser.GameObjects.Container {
-    const ring = this.scene.add.circle(0, 0, radius + 4, color, 0.20).setStrokeStyle(2, color, 0.5);
-    const bg   = this.scene.add.circle(0, 0, radius, color, 0.70);
-    const text = this.scene.add.text(0, 0, label, { fontSize: `${Math.round(radius * 0.85)}px` }).setOrigin(0.5);
+    // Dark glassy base with a colored rim — reads cleaner over the action
+    // than the old washed-out solid fill.
+    const halo = this.scene.add.circle(0, 0, radius + 7, color, 0.12);
+    const ring = this.scene.add.circle(0, 0, radius + 3, 0x000000, 0)
+      .setStrokeStyle(3, color, 0.85);
+    const bg   = this.scene.add.circle(0, 0, radius, 0x0c121c, 0.82)
+      .setStrokeStyle(1, 0xffffff, 0.10);
+    const text = this.scene.add.text(0, 0, label, { fontSize: `${Math.round(radius * 0.8)}px` }).setOrigin(0.5);
 
-    const c = this.scene.add.container(x, y, [ring, bg, text])
+    const c = this.scene.add.container(x, y, [halo, ring, bg, text])
       .setScrollFactor(0).setDepth(200)
       .setSize(radius * 2 + 12, radius * 2 + 12)
       .setInteractive({ useHandCursor: true });
