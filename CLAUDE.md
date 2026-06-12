@@ -18,10 +18,6 @@ npm run preview      # serve the production build
 
 There are no tests and no linter. `npm run typecheck` must pass; use it to verify changes.
 
-## Repository layout — active vs. legacy
-
-Only `src/`, `public/`, `index.html`, and `vite.config.js` are the live app. The repo root also contains **legacy files from the pre-TypeScript vanilla-canvas version: `game.js`, `sw.js`, `manifest.webmanifest`, `icon-*.png`**. These are not imported, not built, and not served by Vite — do not edit them when changing game behavior, and do not confuse root `sw.js` with the real service worker at `public/sw.js`.
-
 ## Architecture
 
 Scene flow: `BootScene → PreloadScene → MenuScene → GameScene → GameOverScene` (registered in `src/main.ts`, fixed 1280×720 logical canvas scaled with `Phaser.Scale.FIT`).
