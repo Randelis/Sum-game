@@ -1,7 +1,7 @@
 /* Service worker for Zombie Shooter PWA
  * Strategy: cache-first for app shell + assets, network fallback,
  * runtime caching for everything else. Bump CACHE_VERSION on each release. */
-const CACHE_VERSION = 'zombie-shooter-v1';
+const CACHE_VERSION = 'zombie-shooter-v2';
 const APP_SHELL = [
   './',
   './index.html',

@@ -57,8 +57,10 @@ export class UpgradeMenu {
   }
 
   private _makeCard(def: UpgradeDef, x: number, y: number, w: number, h: number): Phaser.GameObjects.Container {
+    // Interactive children must carry their own scrollFactor(0): the input
+    // hit-test uses the child's scroll factor, not the parent container's.
     const bg     = this.scene.add.rectangle(x, y, w, h, 0x1a2c3e, 0.98)
-      .setStrokeStyle(3, 0x4488cc).setInteractive({ useHandCursor: true });
+      .setStrokeStyle(3, 0x4488cc).setScrollFactor(0).setInteractive({ useHandCursor: true });
     const name   = this.scene.add.text(x, y - h / 2 + 36, def.name, {
       fontSize: '22px', color: '#ffffff', fontStyle: 'bold',
     }).setOrigin(0.5);

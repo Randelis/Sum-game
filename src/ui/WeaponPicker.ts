@@ -9,11 +9,13 @@ export class WeaponPicker {
   private _container!: Phaser.GameObjects.Container;
   private _cards:      Phaser.GameObjects.Container[] = [];
   private _onPick:     (def: WeaponDef) => void;
+  private _onClose:    () => void;
   private _closeBtn!:  Phaser.GameObjects.Container;
 
-  constructor(scene: Phaser.Scene, onPick: (def: WeaponDef) => void) {
-    this.scene   = scene;
-    this._onPick = onPick;
+  constructor(scene: Phaser.Scene, onPick: (def: WeaponDef) => void, onClose: () => void) {
+    this.scene    = scene;
+    this._onPick  = onPick;
+    this._onClose = onClose;
     this._build();
   }
 
@@ -59,13 +61,13 @@ export class WeaponPicker {
       stroke: '#000', strokeThickness: 4,
     }).setOrigin(0.5).setScrollFactor(0).setDepth(DEPTH.OVERLAY + 1);
 
-    // Close button (X)
+    // Close button (X) — needs its own scrollFactor(0) for input (see _makeCard)
     const closeBg = this.scene.add.rectangle(GAME_W - 40, 40, 50, 50, 0x441111, 0.9)
-      .setStrokeStyle(2, 0xcc4444).setInteractive({ useHandCursor: true });
+      .setStrokeStyle(2, 0xcc4444).setScrollFactor(0).setInteractive({ useHandCursor: true });
     const closeX = this.scene.add.text(GAME_W - 40, 40, '✕', {
       fontSize: '24px', color: '#ffaaaa', fontStyle: 'bold',
     }).setOrigin(0.5);
-    closeBg.on('pointerdown', () => this.hide());
+    closeBg.on('pointerdown', () => { this.hide(); this._onClose(); });
     this._closeBtn = this.scene.add.container(0, 0, [closeBg, closeX])
       .setScrollFactor(0).setDepth(DEPTH.OVERLAY + 3);
 
@@ -77,8 +79,10 @@ export class WeaponPicker {
     const fill  = active ? 0x234423 : 0x1a2c3e;
     const stroke = active ? 0x88ff44 : 0x4488cc;
 
+    // Interactive children must carry their own scrollFactor(0): the input
+    // hit-test uses the child's scroll factor, not the parent container's.
     const bg     = this.scene.add.rectangle(x, y, w, h, fill, 0.98)
-      .setStrokeStyle(2, stroke).setInteractive({ useHandCursor: true });
+      .setStrokeStyle(2, stroke).setScrollFactor(0).setInteractive({ useHandCursor: true });
     const icon   = this.scene.add.text(x, y - h / 2 + 30, def.icon, { fontSize: '32px' }).setOrigin(0.5);
     const name   = this.scene.add.text(x, y + 8, def.name, {
       fontSize: '14px', color: '#ffffff', fontStyle: 'bold',

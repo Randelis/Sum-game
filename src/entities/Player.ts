@@ -185,6 +185,7 @@ export class Player {
     if (this._healTimer > 0) return;
     if (!this._pendingHeal) return;
     if (this.flasks <= 0) return;
+    if (this.hp >= this.stats.maxHp) return; // don't waste a flask at full HP
 
     this.flasks--;
     this._healTimer = PLAYER.FLASK_MS / 1000;

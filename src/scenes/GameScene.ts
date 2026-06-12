@@ -56,6 +56,15 @@ export class GameScene extends Phaser.Scene {
 
   constructor() { super('Game'); }
 
+  // Pause must also halt arcade physics: bodies keep their velocities and
+  // overlap handlers keep firing otherwise, so enemies would coast into the
+  // player and deal damage while a menu is open.
+  private _setPaused(v: boolean): void {
+    this._paused = v;
+    if (v) this.physics.pause();
+    else   this.physics.resume();
+  }
+
   create(): void {
     this._audio = new AudioSystem();
     this._save  = new SaveSystem();
@@ -217,7 +226,7 @@ export class GameScene extends Phaser.Scene {
         this._hud.showAnnounce('💎 MAX POWER +500', 2000);
         return;
       }
-      this._paused = true;
+      this._setPaused(true);
       this._upgradeMenu.show(choices);
     });
 
@@ -262,18 +271,22 @@ export class GameScene extends Phaser.Scene {
 
     this._upgradeMenu = new UpgradeMenu(this, (def) => {
       this._upgrades.applyUpgrade(def);
-      this._paused = false;
+      this._setPaused(false);
     });
 
-    this._weaponPicker = new WeaponPicker(this, (def) => {
-      this.player.setWeapon(def.id);
-      this._paused = false;
-    });
+    this._weaponPicker = new WeaponPicker(
+      this,
+      (def) => {
+        this.player.setWeapon(def.id);
+        this._setPaused(false);
+      },
+      () => this._setPaused(false),  // ✕ close — resume without switching
+    );
   }
 
   private _openWeaponPicker(): void {
     if (this._paused) return;
-    this._paused = true;
+    this._setPaused(true);
     this._weaponPicker.show(unlockedWeapons(this.player.level), this.player.weapon.id);
   }
 
